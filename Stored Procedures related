@@ -1,0 +1,24 @@
+
+-- To copy or replicate all stored procedures from one database to another in SQL Server 2016 and newer, here are your best options — both manual and automated:
+-- ask AI: sql server how to copy or replicate all stored procedures from one database to another?
+
+--✅ Option 1: Generate Scripts with SSMS
+Open SQL Server Management Studio (SSMS).
+
+Right-click the source database > Tasks > Generate Scripts.
+
+Choose "Select specific database objects".
+
+Check Stored Procedures only.
+
+Click Next, then choose:
+
+"Save to file" or "New Query Window".
+
+Click Advanced and set:
+
+"Script USE DATABASE" = False
+
+"Script DROP and CREATE" = Create only (or Drop and Create if needed)
+
+Execute the script on the target database.
