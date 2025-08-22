@@ -1,0 +1,509 @@
+--------------------------------------------------------------------------------- 
+-- para Disco cheio, se for disco D, procura a pasta D:\perflogs e deixa apenas os 3 ultimos meses.
+	verificar tbm os pares, em caso de fail over cluster e AG.
+	
+--------------------------------------------------------------------------------- 
+Para alertas de disco servidores NDW
+Se estiver < 95,5%, fechar e colocar o seguinte: NDW team is aware and working on this issue
+Se estiver > 95,5% enviar email avisando o time de NDW: NDW_Admin <NDW_Admin@T-Mobile.com>
+
+---------------------------------------------------------------------------------
+Change para adicao de datafiles -->> CHG011650193 
+
+---------------------------------------------------------------------------------
+
+--Disk group utilization
+--------------------------------------------------------------------------------- 
+use <database name>
+sp_spaceused
+---------------------------------------------------------------------------------
+--List database files
+
+-- sp_helpfile on all databases
+DECLARE @command varchar(1000) 
+
+SELECT @command = 'IF ''?'' NOT IN(''master'', ''model'', ''msdb'', ''tempdb'') BEGIN USE ? 
+   EXEC(''sp_helpfile'') END' 
+
+EXEC sp_MSforeachdb @command 
+
+---------------------------------------------------------------------------------
+-- Retornar para o mount point (drive) espaço total e disponível para todos os arquivos de banco de dados
+
+SELECT f.database_id, f.file_id, volume_mount_point, total_bytes/(1048576*1000) as "Total GB", 
+available_bytes/(1048576*1000) as "Available GB" , name, max_size, growth
+FROM sys.master_files AS f  
+CROSS APPLY sys.dm_os_volume_stats(f.database_id, f.file_id)
+order by f.file_id, volume_mount_point; 
+
+-- Retornar espaço total e disponível para o banco de dados atual
+SELECT database_id, f.file_id, volume_mount_point, total_bytes/(1048576*1000) as "Total GB", available_bytes /(1048576*1000) as "Available GB" 
+FROM sys.database_files AS f  
+CROSS APPLY sys.dm_os_volume_stats(DB_ID(f.name), f.file_id); 
+
+---------------------------------------------------------------------------------
+-- Database datafile size and free GB
+
+SELECT name, (size/128.0)/1024 FileSizeInGB,
+(size/128.0 - CAST(FILEPROPERTY(name, 'SpaceUsed') AS int)/128.0) /1024
+   AS EmptySpaceInGB
+FROM sys.database_files;
+--------------------------------------------------------------------------------- 
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+-- About log
+
+-- logspace
+DBCC SQLPerf(logspace) 
+--
+USE <databasename>;
+DBCC loginfo;
+-- Open Tran
+DBCC opentran (database);
+-- get information about the log file's reuse wait
+
+SELECT log_reuse_wait_desc
+FROM sys.databases
+WHERE name = 'DBName'
+---------------------------------------------------------------------------------
+Shirink databases
+
+DBCC SHRINKDATABASE(databaseName, target percentage of free space);
+DBCC SHRINKDATABASE(tempdb, 20);
+
+---------------------------------------------------------------------------------
+
+use master
+go
+BEGIN TRAN
+    DECLARE @dbname varchar(200)
+    CREATE TABLE #tmp_datafiles ([db_name] varchar(200), [file_group] varchar(200), [file_name] varchar(200), [file_type] varchar(4),
+                                 [total_mb] decimal(12,2), [used_mb] decimal(12,2), pct_used varchar(10), [auto_grow] char(1),
+                                 [growth] varchar(64), maxsize varchar(64), [file_path] varchar(300))
+    DECLARE XCursor CURSOR FOR (select name from sysdatabases
+                                where databasepropertyex(name, 'status')='ONLINE'
+                                or databasepropertyex(name, 'status')='RECOVERING'
+                                or databasepropertyex(name, 'status')='SUSPECT'
+                                or databasepropertyex(name, 'status')='EMERGENCY')
+    OPEN XCursor
+    FETCH NEXT FROM XCursor INTO @dbname
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        INSERT INTO #tmp_datafiles EXECUTE ('USE ['+ @dbname +']
+                                            SELECT
+                                                db_name() DB_NAME,
+                                                ISNULL(G.groupname,''LOGFILE'') [FILE_GROUP],
+                                                convert(varchar(32),F.[name]) [FILE_NAME],
+                                                CASE F.[status]
+                                                    WHEN 2 THEN ''Data''
+                                                    WHEN 1048578 THEN ''Data''
+                                                    WHEN 66 THEN ''Log''
+                                                    WHEN 1048642 THEN ''Log''
+                                                END [FILE_TYPE],
+                                                convert(decimal(12,2),((F.size*8)/1024.00)) [TOTAL_MB],
+                                                convert(decimal(12,2),(fileproperty(F.name,''SpaceUsed'')*8)/1024.00) [USED_MB],
+                                                convert(varchar(10),convert(decimal(12,2),((fileproperty(F.name,''SpaceUsed'')*1.00)/(F.size*1.00))*100)) + '' %'' [PCT_USED],
+                                                CASE F.growth WHEN 0 THEN ''N'' ELSE ''Y'' END [AUTOGROW],
+                                                CASE F.growth
+                                                    WHEN 0 THEN ''-''
+                                                ELSE CASE
+                                                        WHEN F.growth <> 0 AND F.[status] in (2,66) THEN convert(varchar(64),convert(decimal(12,2),growth*0.0078125)) + '' MB''
+                                                        WHEN F.growth <> 0 AND F.[status] in (1048578,1048642) THEN convert(varchar(64),growth) + '' %''
+                                                    END
+                                                END [FILE_GROWTH],
+                                                CASE f.growth
+                                                    WHEN  0 THEN convert(varchar(64),convert(decimal(12,2),size*0.0078125))
+                                                ELSE CASE maxsize
+                                                        WHEN -1 THEN ''Unlimited''
+                                                    ELSE convert(varchar(64),convert(decimal(12,2),maxsize*0.0078125))  END
+                                                END as [FILE_MAXSIZE],
+                                                convert(varchar(128),F.[filename]) [FILE_PATH]
+                                            FROM
+                                                sysfiles F LEFT OUTER JOIN sysfilegroups G ON F.groupid = G.groupid
+                                            ')
+        FETCH NEXT FROM XCursor INTO @dbname
+    END
+    SELECT * FROM #tmp_datafiles
+    DROP TABLE #tmp_datafiles
+    CLOSE XCursor
+    DEALLOCATE XCursor
+COMMIT TRAN
+
+---------------------------------------------------------------------------------
+-- To view I/O latency stats by database/files execute the following query:
+SELECT *
+FROM sys.dm_io_virtual_file_stats(DB_ID('AdventureWorks2014'), NULL) divfs
+ORDER BY divfs.io_stall DESC;
+
+-- this is more usefull
+
+SELECT
+    [ReadLatency] =
+        CASE WHEN [num_of_reads] = 0
+            THEN 0 ELSE ([io_stall_read_ms] / [num_of_reads]) END,
+    [WriteLatency] =
+        CASE WHEN [num_of_writes] = 0
+            THEN 0 ELSE ([io_stall_write_ms] / [num_of_writes]) END,
+    [Latency] =
+        CASE WHEN ([num_of_reads] = 0 AND [num_of_writes] = 0)
+            THEN 0 ELSE ([io_stall] / ([num_of_reads] + [num_of_writes])) END,
+    [AvgBPerRead] =
+        CASE WHEN [num_of_reads] = 0
+            THEN 0 ELSE ([num_of_bytes_read] / [num_of_reads]) END,
+    [AvgBPerWrite] =
+        CASE WHEN [num_of_writes] = 0
+            THEN 0 ELSE ([num_of_bytes_written] / [num_of_writes]) END,
+    [AvgBPerTransfer] =
+        CASE WHEN ([num_of_reads] = 0 AND [num_of_writes] = 0)
+            THEN 0 ELSE
+                (([num_of_bytes_read] + [num_of_bytes_written]) /
+                ([num_of_reads] + [num_of_writes])) END,
+    LEFT ([mf].[physical_name], 2) AS [Drive],
+    DB_NAME ([vfs].[database_id]) AS [DB],
+    [mf].[physical_name]
+FROM
+    sys.dm_io_virtual_file_stats (NULL,NULL) AS [vfs]
+JOIN sys.master_files AS [mf]
+    ON [vfs].[database_id] = [mf].[database_id]
+    AND [vfs].[file_id] = [mf].[file_id]
+-- WHERE [vfs].[file_id] = 2 -- log files
+-- ORDER BY [Latency] DESC
+-- ORDER BY [ReadLatency] DESC
+ORDER BY [WriteLatency] DESC;
+GO
+
+
+
+---------------------------------------------------------------------------------
+-- DBCC SHRINKFILE
+https://learn.microsoft.com/pt-br/sql/t-sql/database-console-commands/dbcc-shrinkfile-transact-sql?view=sql-server-ver16
+
+---------------------------------------------------------------------------------
+-- Most recent file growth events
+Customizable time filter: 
+
+The variable @DaysBack allows you to specify how many days back you want to analyze. 
+Default: Last 7 days (@DaysBack = 7). 
+ Displays only recent file growth events: 
+
+AND te.StartTime >= DATEADD(DAY, -@DaysBack, GETDATE()) filters events from the last X days. 
+Sorted by most recent growth event first: 
+
+ORDER BY te.StartTime DESC. 
+
+
+DECLARE @TracePath NVARCHAR(260); 
+DECLARE @DaysBack INT = 7; -- Define how many days back you want to view 
+ 
+-- Get the default trace path from SQL Server 
+SELECT @TracePath = path FROM sys.traces WHERE is_default = 1; 
+ 
+-- Query to list only recent file growth events 
+SELECT  
+    DB_NAME(te.DatabaseID) AS DatabaseName, 
+    mf.type_desc AS FileType, 
+    mf.name AS LogicalFileName, 
+    mf.physical_name AS PhysicalFileName, 
+    te.StartTime AS GrowthTime, 
+    (te.IntegerData * 8 / 1024.0) AS GrowthSize_MB, -- Growth size in MB 
+    (te.IntegerData * 8 / 1024.0 / 1024.0) AS GrowthSize_GB -- Growth size in GB 
+FROM sys.fn_trace_gettable(@TracePath, DEFAULT) AS te 
+JOIN sys.master_files AS mf ON te.DatabaseID = mf.database_id 
+WHERE te.EventClass = 92 -- File growth event 
+AND te.StartTime >= DATEADD(DAY, -@DaysBack, GETDATE()) -- Filters only the last X days 
+ORDER BY te.StartTime DESC;
+
+--------------------------------------------------------------------------------
+-- Rodar este comando para pegar recomendacoes sobre shirink dos arquivos de log, os resultados fiam em messages
+
+-- 2011-05-24 Pedro Lopes (Microsoft) pedro.lopes@microsoft.com (http://aka.ms/sqlinsights)
+--
+-- 2012-03-25 Added SQL 2012 support
+-- 2012-09-19 Simplified logic
+-- 2012-09-20 Changed grow settings if not SQL Server 2012
+--
+-- Generates the sql statements to preemtively fix VLF issues in all DBs within the server, based on the transaction log current size.
+--
+SET NOCOUNT ON;
+
+DECLARE @query VARCHAR(1000), @dbname VARCHAR(255), @count int, @usedlogsize bigint, @logsize bigint
+DECLARE @sqlcmd NVARCHAR(1000), @sqlparam NVARCHAR(100), @filename VARCHAR(255), @i int, @recmodel NVARCHAR(128)
+DECLARE @potsize int, @n_iter int, @n_iter_final int, @initgrow int, @n_init_iter int, @bckpath NVARCHAR(255)
+DECLARE @majorver smallint, @minorver smallint, @build smallint
+
+CREATE TABLE #loginfo (dbname varchar(100), num_of_rows int, used_logsize_MB DECIMAL(20,1))
+
+DECLARE @tblvlf TABLE (dbname varchar(100), 
+	Actual_log_size_MB DECIMAL(20,1), 
+	Potential_log_size_MB DECIMAL(20,1), 
+	Actual_VLFs int, 
+	Potential_VLFs int, 
+	Growth_iterations int,
+	Log_Initial_size_MB DECIMAL(20,1), 
+	File_autogrow_MB DECIMAL(20,1))
+	
+SELECT TOP 1 @bckpath = REVERSE(RIGHT(REVERSE(physical_device_name), LEN(physical_device_name)-CHARINDEX('\',REVERSE(physical_device_name),0))) FROM msdb.dbo.backupmediafamily WHERE device_type = 2
+
+SELECT @majorver = (@@microsoftversion / 0x1000000) & 0xff, @minorver = (@@microsoftversion / 0x10000) & 0xff, @build = @@microsoftversion & 0xffff
+ 
+--DECLARE csr CURSOR FAST_FORWARD FOR SELECT name FROM master..sysdatabases WHERE dbid > 4 AND DATABASEPROPERTYEX(name,'status') = 'ONLINE' AND DATABASEPROPERTYEX(name,'Updateability') = 'READ_WRITE' AND name <> 'tempdb' AND name <> 'ReportServerTempDB'
+DECLARE csr CURSOR FAST_FORWARD FOR SELECT name FROM master.sys.databases WHERE is_read_only = 0 AND state = 0 AND database_id <> 2;
+OPEN csr
+FETCH NEXT FROM csr INTO @dbname
+WHILE (@@FETCH_STATUS <> -1)
+BEGIN
+	CREATE TABLE #log_info (recoveryunitid int NULL,
+	fileid tinyint,
+	file_size bigint,
+	start_offset bigint,
+	FSeqNo int,
+	[status] tinyint,
+	parity tinyint,
+	create_lsn numeric(25,0))
+
+	SET @query = 'DBCC LOGINFO (' + '''' + @dbname + ''') WITH NO_INFOMSGS'
+	IF @majorver < 11
+	BEGIN
+		INSERT INTO #log_info (fileid, file_size, start_offset, FSeqNo, [status], parity, create_lsn)
+		EXEC (@query)
+	END
+	ELSE
+	BEGIN
+		INSERT INTO #log_info (recoveryunitid, fileid, file_size, start_offset, FSeqNo, [status], parity, create_lsn)
+		EXEC (@query)
+	END
+	SET @count = @@ROWCOUNT
+	SET @usedlogsize = (SELECT (MIN(l.start_offset) + SUM(CASE WHEN l.status <> 0 THEN l.file_size ELSE 0 END))/1024.00/1024.00 FROM #log_info l)
+	DROP TABLE #log_info;
+	INSERT #loginfo
+	VALUES(@dbname, @count, @usedlogsize);
+	FETCH NEXT FROM csr INTO @dbname
+END
+
+CLOSE csr
+DEALLOCATE csr
+
+PRINT '/* Generated on ' + CONVERT (VARCHAR, GETDATE()) + ' in ' + @@SERVERNAME + ' */' + CHAR(10)
+	
+DECLARE cshrk CURSOR FAST_FORWARD FOR SELECT dbname, num_of_rows FROM #loginfo 
+WHERE num_of_rows >= 30 --My rule of thumb is 50 VLFs. Your mileage may vary.
+ORDER BY dbname
+OPEN cshrk
+FETCH NEXT FROM cshrk INTO @dbname, @count
+WHILE (@@FETCH_STATUS <> -1)
+BEGIN
+	SET @sqlcmd = 'SELECT @nameout = name, @logsizeout = (CAST(size AS BIGINT)*8)/1024 FROM [' + @dbname + '].dbo.sysfiles WHERE (64 & status) = 64'
+	SET @sqlparam = '@nameout NVARCHAR(100) OUTPUT, @logsizeout bigint OUTPUT'
+	EXEC sp_executesql @sqlcmd, @sqlparam, @nameout = @filename OUTPUT, @logsizeout = @logsize OUTPUT;
+	PRINT '---------------------------------------------------------------------------------------------------------- '
+	PRINT CHAR(13) + 'USE ' + QUOTENAME(@dbname) + ';'
+	PRINT 'DBCC SHRINKFILE (N''' + @filename + ''', 1, TRUNCATEONLY);'
+	PRINT '--'
+	PRINT '-- CHECK: if the tlog file has shrunk with the following query:'
+	PRINT 'SELECT name, (size*8)/1024 AS log_MB FROM [' + @dbname + '].dbo.sysfiles WHERE (64 & status) = 64'
+	PRINT '--'
+	SET @recmodel = CONVERT(NVARCHAR, DATABASEPROPERTYEX(@dbname,'Recovery'))
+	IF @recmodel <> 'SIMPLE' 
+	AND SERVERPROPERTY('EngineEdition') <> 8 -- This cannot be applied on Managed Instance
+	BEGIN
+		PRINT '-- If the log has not shrunk, you must backup the transaction log next.'
+		PRINT '-- Repeat the backup and shrink process alternatively until you get the desired log size (about 1MB).'
+		PRINT '--'
+		PRINT '-- METHOD: Backup -> Shrink (repeat the backup and shrink process until the log has shrunk):'
+		PRINT '--'
+		PRINT '-- Create example logical backup device.' 
+		PRINT 'USE master;' + CHAR(13) + 'EXEC sp_addumpdevice ''disk'', ''BckLog'', ''' + @bckpath + '\example_bck.trn'';'
+		PRINT 'USE ' + QUOTENAME(@dbname) + ';'
+		PRINT '-- Backup Log'
+		PRINT 'BACKUP LOG ' + QUOTENAME(@dbname) + ' TO BckLog;'
+		PRINT '-- Shrink'
+		PRINT 'DBCC SHRINKFILE (N''' + @filename + ''', 1);'
+		PRINT '--'
+		PRINT '-- METHOD: Alter recovery model -> Shrink:'
+		PRINT '-- NOTE: Because the database is in ' + @recmodel + ' recovery model, one alternative is to set it to SIMPLE to truncate the log, shrink it, and reset it to ' + @recmodel + '.'
+		PRINT '-- NOTE2: This method of setting the recovery model to SIMPLE and back again WILL BREAK log chaining, and thus any log shipping or mirroring.'
+		PRINT 'USE [master]; ' + CHAR(13) + 'ALTER DATABASE ' + QUOTENAME(@dbname) + ' SET RECOVERY SIMPLE;'
+		PRINT 'USE ' + QUOTENAME(@dbname) + ';' + CHAR(13) + 'DBCC SHRINKFILE (N''' + @filename + ''', 1);'
+		PRINT 'USE [master]; ' + CHAR(13) + 'ALTER DATABASE ' + QUOTENAME(@dbname) + ' SET RECOVERY ' + @recmodel + ';'
+		PRINT '--'
+		PRINT '-- CHECK: if the tlog file has shrunk with the following query:'
+		PRINT 'SELECT name, (size*8)/1024 AS log_MB FROM [' + @dbname + '].dbo.sysfiles WHERE (64 & status) = 64'
+	END
+	ELSE
+	BEGIN
+		PRINT '-- If not, then proceed to the next step (it may be necessary to execute multiple times):'
+		PRINT 'DBCC SHRINKFILE (N''' + @filename + ''', 1);'
+		PRINT '-- CHECK: if the tlog file has shrunk with the following query:'
+		PRINT 'SELECT name, (size*8)/1024 AS log_MB FROM [' + @dbname + '].dbo.sysfiles WHERE (64 & status) = 64'
+	END
+
+	-- We are growing in MB instead of GB because of known issue prior to SQL 2012.
+	-- More detail here: http://www.sqlskills.com/BLOGS/PAUL/post/Bug-log-file-growth-broken-for-multiples-of-4GB.aspx
+	-- and http://connect.microsoft.com/SQLServer/feedback/details/481594/log-growth-not-working-properly-with-specific-growth-sizes-vlfs-also-not-created-appropriately
+	-- or https://connect.microsoft.com/SQLServer/feedback/details/357502/transaction-log-file-size-will-not-grow-exactly-4gb-when-filegrowth-4gb
+	IF @majorver >= 11
+	BEGIN
+		SET @n_iter = (SELECT CASE WHEN @logsize <= 64 THEN 1
+			WHEN @logsize > 64 AND @logsize < 256 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/256, 0)
+			WHEN @logsize >= 256 AND @logsize < 1024 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/512, 0)
+			WHEN @logsize >= 1024 AND @logsize < 4096 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/1024, 0)
+			WHEN @logsize >= 4096 AND @logsize < 8192 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/2048, 0)
+			WHEN @logsize >= 8192 AND @logsize < 16384 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/4096, 0)
+			WHEN @logsize >= 16384 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/8192, 0)
+			END)
+		SET @potsize = (SELECT CASE WHEN @logsize <= 64 THEN 1*64
+			WHEN @logsize > 64 AND @logsize < 256 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/256, 0)*256
+			WHEN @logsize >= 256 AND @logsize < 1024 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/512, 0)*512
+			WHEN @logsize >= 1024 AND @logsize < 4096 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/1024, 0)*1024
+			WHEN @logsize >= 4096 AND @logsize < 8192 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/2048, 0)*2048
+			WHEN @logsize >= 8192 AND @logsize < 16384 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/4096, 0)*4096
+			WHEN @logsize >= 16384 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/8192, 0)*8192
+			END)
+	END
+	ELSE
+	BEGIN
+		SET @n_iter = (SELECT CASE WHEN @logsize <= 64 THEN 1
+			WHEN @logsize > 64 AND @logsize < 256 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/256, 0)
+			WHEN @logsize >= 256 AND @logsize < 1024 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/512, 0)
+			WHEN @logsize >= 1024 AND @logsize < 4096 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/1024, 0)
+			WHEN @logsize >= 4096 AND @logsize < 8192 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/2048, 0)
+			WHEN @logsize >= 8192 AND @logsize < 16384 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/4000, 0)
+			WHEN @logsize >= 16384 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/8000, 0)
+			END)
+		SET @potsize = (SELECT CASE WHEN @logsize <= 64 THEN 1*64
+			WHEN @logsize > 64 AND @logsize < 256 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/256, 0)*256
+			WHEN @logsize >= 256 AND @logsize < 1024 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/512, 0)*512
+			WHEN @logsize >= 1024 AND @logsize < 4096 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/1024, 0)*1024
+			WHEN @logsize >= 4096 AND @logsize < 8192 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/2048, 0)*2048
+			WHEN @logsize >= 8192 AND @logsize < 16384 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/4000, 0)*4000
+			WHEN @logsize >= 16384 THEN ROUND(CONVERT(FLOAT, ROUND(@logsize, -2))/8000, 0)*8000
+			END)
+	END
+	
+	-- If the proposed log size is smaller than current log, and also smaller than 4GB,
+	-- and there is less than 512MB of diff between the current size and proposed size, add 1 grow.
+	SET @n_iter_final = @n_iter
+	IF @logsize > @potsize AND @potsize <= 4096 AND ABS(@logsize - @potsize) < 512
+	BEGIN
+		SET @n_iter_final = @n_iter + 1
+	END
+	-- If the proposed log size is larger than current log, and also larger than 50GB, 
+	-- and there is less than 1GB of diff between the current size and proposed size, take 1 grow.
+	ELSE IF @logsize < @potsize AND @potsize <= 51200 AND ABS(@logsize - @potsize) > 1024
+	BEGIN
+		SET @n_iter_final = @n_iter - 1
+	END
+
+	IF @potsize = 0 
+	BEGIN 
+		SET @potsize = 64 
+	END
+	IF @n_iter = 0 
+	BEGIN 
+		SET @n_iter = 1
+	END
+	
+	SET @potsize = (SELECT CASE WHEN @n_iter < @n_iter_final THEN @potsize + (@potsize/@n_iter) 
+			WHEN @n_iter > @n_iter_final THEN @potsize - (@potsize/@n_iter) 
+			ELSE @potsize END)
+	
+	SET @n_init_iter = @n_iter_final
+	IF @potsize >= 8192
+	BEGIN
+		SET @initgrow = @potsize/@n_iter_final
+	END
+	IF @potsize >= 64 AND @potsize <= 512
+	BEGIN
+		SET @n_init_iter = 1
+		SET @initgrow = 512
+	END
+	IF @potsize > 512 AND @potsize <= 1024
+	BEGIN
+		SET @n_init_iter = 1
+		SET @initgrow = 1023
+	END
+	IF @potsize > 1024 AND @potsize < 8192
+	BEGIN
+		SET @n_init_iter = 1
+		SET @initgrow = @potsize
+	END
+
+	INSERT INTO @tblvlf
+	SELECT @dbname, @logsize, @potsize, @count, 
+		CASE WHEN @potsize <= 64 THEN (@potsize/(@potsize/@n_init_iter))*4
+			WHEN @potsize > 64 AND @potsize < 1024 THEN (@potsize/(@potsize/@n_init_iter))*8
+			WHEN @potsize >= 1024 THEN (@potsize/(@potsize/@n_init_iter))*16
+			END, 
+		@n_init_iter, @initgrow, CASE WHEN (@potsize/@n_iter_final) <= 1024 THEN (@potsize/@n_iter_final) ELSE 1024 END
+	
+	SET @i = 0
+	WHILE @i <= @n_init_iter
+	BEGIN
+		IF @i = 1
+		BEGIN
+			--Log Autogrow should not be above 1GB
+			PRINT CHAR(13) + '-- Now for the log file growth:'
+			PRINT 'ALTER DATABASE [' + @dbname + '] MODIFY FILE ( NAME = N''' + @filename + ''', SIZE = ' + CONVERT(VARCHAR, @initgrow) + 'MB , FILEGROWTH = ' + CASE WHEN (@potsize/@n_iter_final) <= 1024 THEN CONVERT(VARCHAR, (@potsize/@n_iter_final)) ELSE '1024' END + 'MB );'
+		END
+		IF @i > 1
+		BEGIN
+			PRINT 'ALTER DATABASE [' + @dbname + '] MODIFY FILE ( NAME = N''' + @filename + ''', SIZE = ' + CONVERT(VARCHAR, @initgrow*@i)+ 'MB );'
+		END		
+		SET @i = @i + 1
+		CONTINUE
+	END
+	FETCH NEXT FROM cshrk INTO @dbname, @count
+END
+CLOSE cshrk
+DEALLOCATE cshrk;
+
+DROP TABLE #loginfo;
+
+SELECT dbname AS [Database_Name], Actual_log_size_MB, Potential_log_size_MB, Actual_VLFs, 
+	Potential_VLFs, Growth_iterations, Log_Initial_size_MB, File_autogrow_MB
+FROM @tblvlf;
+GO
+
+-- Ex de resultados
+
+USE [vstr_sideA];
+DBCC SHRINKFILE (N'vstrl_sideA_log0', 1, TRUNCATEONLY);
+--
+-- CHECK: if the tlog file has shrunk with the following query:
+SELECT name, (size*8)/1024 AS log_MB FROM [vstr_sideA].dbo.sysfiles WHERE (64 & status) = 64
+--
+-- If not, then proceed to the next step (it may be necessary to execute multiple times):
+DBCC SHRINKFILE (N'vstrl_sideA_log0', 1);
+-- CHECK: if the tlog file has shrunk with the following query:
+SELECT name, (size*8)/1024 AS log_MB FROM [vstr_sideA].dbo.sysfiles WHERE (64 & status) = 64
+
+-- Now for the log file growth:
+ALTER DATABASE [vstr_sideA] MODIFY FILE ( NAME = N'vstrl_sideA_log0', SIZE = 6144MB , FILEGROWTH = 1024MB );
+
+
+--------------------------------------------------------------------------------
+-- comandos de shirink
+
+BACKUP LOG vstr_baA TO DISK = 'H:\MSSQL14.MSSQLSERVER\MSSQL\Backup\vstr_baA_log_truncate.trn';
+DBCC SHRINKFILE (vstr_baA_log0, EMPTYFILE);
+DBCC SHRINKFILE (N'vstr_baA_log0', 1);
+DBCC SHRINKFILE (N'vstr_baA_log0', 1, TRUNCATEONLY); 
+checkpoint
+
+--------------------------------------------------------------------------------
+-- Verificar segmentos de vlf nos arquivos de log e open transaction
+
+select DB_ID('vstr_baA')
+ 
+-- vlf active=1 indica q está em uso
+select * from sys.dm_db_log_info(6)
+
+select file_id, vlf_active, COUNT(*)
+from sys.dm_db_log_info(6)
+group by file_id, vlf_active
+
+dbcc opentran
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
