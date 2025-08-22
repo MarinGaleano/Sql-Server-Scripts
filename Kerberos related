@@ -1,0 +1,41 @@
+✅ Kerberos Logon Events to Look For:
+Event ID	Description
+4624	Successful logon (Kerberos or NTLM)
+4768	A Kerberos authentication ticket (TGT) was requested
+4769	A Kerberos service ticket was requested
+4770	A Kerberos TGT was renewed
+4771	Kerberos pre-authentication failed
+4776	NTLM authentication request
+
+
+Rum CMD as administrator
+
+# Get recent Kerberos-related logon events
+Get-WinEvent -FilterHashtable @{
+    LogName = 'Security';
+    ID = 4768, 4769, 4770, 4771
+} | Select-Object TimeCreated, Id, Message | Format-List
+
+Optional: filter for a specific user:
+
+Get-WinEvent -FilterHashtable @{
+    LogName = 'Security';
+    ID = 4768, 4769, 4770, 4771
+} | Where-Object { $_.Message -like '*galeano*' } | Select TimeCreated, Id, Message
+
+
+-----------------------------------------------------------------------------------------
+--On power shell run as administrator
+--Check is ad account is locked:
+
+get-aduser svc_prd_edge -properties lockedout
+
+--Check last password rotation on AD:
+
+get-aduser svc_prd_edge -properties passwordlastset
+
+-- All windows AD user properties:
+
+Get-ADUser username -Properties * | Format-List
+
+ 
