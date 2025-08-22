@@ -1,0 +1,311 @@
+---------------------------------------------------------------------------------
+-- How to audit DMLs on a table
+-- CREATE DATABASE AUDIT SPECIFICATION (Transact-SQL)
+
+https://learn.microsoft.com/en-us/sql/t-sql/statements/create-database-audit-specification-transact-sql?view=sql-server-ver16
+
+USE master;
+GO
+
+-- Create the server audit.
+CREATE SERVER AUDIT Payroll_Security_Audit
+TO FILE (FILEPATH = 'D:\SQLAudit\'); -- make sure this path exists
+GO
+
+-- Enable the server audit.
+ALTER SERVER AUDIT Payroll_Security_Audit
+WITH (STATE = ON);
+GO
+
+-- Move to the target database.
+USE AdventureWorks2022;
+GO
+
+-- Create the database audit specification.
+CREATE DATABASE AUDIT SPECIFICATION Audit_Pay_Tables
+FOR SERVER AUDIT Payroll_Security_Audit ADD (
+    SELECT, INSERT ON HumanResources.EmployeePayHistory BY PUBLIC
+)
+WITH (STATE = ON);
+GO
+
+---------------------------------------------------------------------------------
+-- Check audits enables
+select * from sys.dm_server_audit_status
+
+--Server Audit Filter Values For [action_id]
+https://sqlquantumleap.com/reference/server-audit-filter-values-for-action_id/
+
+---------------------------------------------------------------------------------
+
+-- Generic T-SQL to query the SQL Audit Logs
+
+
+SELECT event_time,action_id, statement, database_name, server_principal_name
+  FROM fn_get_audit_file( 'E:\Test\Audit-*.sqlaudit' , DEFAULT , DEFAULT);
+  
+--Count login success/failed
+select * from sys.dm_server_audit_status
+
+H:\MSSQL15.PRD\MSSQL\SQLAudits\LogonAttempts-Audit_47AC0638-0DC5-410C-A056-A83DCFB31899_0_133871016837590000.sqlaudit
+
+  SELECT server_principal_name as Login, case action_id when 'LGIS' then 'Login Success' when 'LGIF' then 'Login failed' ELSE action_id END as Action ,count(*) as Count
+  FROM fn_get_audit_file( 'H:\MSSQL15.PRD\MSSQL\SQLAudits\LogonAttempts-Audit_*.sqlaudit' , DEFAULT , DEFAULT)
+  where event_time > '2025-03-01 00:00' and server_principal_name !=' ' and action_id in ('LGIS','LGIF')
+  group by server_principal_name, action_id
+  order by 1;
+
+
+
+
+  
+---------------------------------------------------------------------------------
+SELECT event_time,action_id, statement, database_name, server_principal_name
+  FROM fn_get_audit_file( 'H:\MSSQL14.PRD\MSSQL\SQLAudits\Default*.sqlaudit' , DEFAULT , DEFAULT)
+
+
+vc consegue ver o caminho do arquivo de auditoria por:
+SELECT * FROM sys.dm_server_audit_status; .. aí vc troca o path na funçao fn_get_audit_file
+
+ai vc vai filtrar no where o database_name
+no statament tbm aí filtra pelo comando
+
+Ex:
+
+SELECT distinct statement
+  FROM fn_get_audit_file( 'H:\MSSQL15.PRD\MSSQL\SQLAudits\Default_SQLAudit_ppolwnama00001_PRD_6499181E-D51F-4DFC-8D68-C7B6D4329579_0_133510793177120000.sqlaudit' , DEFAULT , DEFAULT)
+;
+
+H:\MSSQL13.PRD\MSSQL\SQLAudits\Default_SQLAudit_PPOLWCARX00008_PRD_EB1DCF61-7272-4BE4-8A0A-14D837646090_0_133512520978620000.sqlaudit
+
+SELECT event_time,action_id, statement, database_name, server_principal_name
+  FROM fn_get_audit_file( 'H:\MSSQL16.PRD\MSSQL\SQLAudits\Default_SQLAudit_ppolwawsql00003_PRD_*.sqlaudit' , DEFAULT , DEFAULT)
+	where statement like 'ALTER DATABASE%'
+;
+
+
+SELECT top 100 event_time,action_id, statement, database_name, server_principal_name
+  FROM fn_get_audit_file( 'H:\MSSQL15.QAT\MSSQL\SQLAudits\DML*.sqlaudit' , DEFAULT , DEFAULT)
+  
+---------------------------------------------------------------------------------
+--Alternatively, check statements on MSDB:
+
+SELECT * FROM [msdb].[dbo].[tblSQLAuditLogs]
+  where database_name = 'PPOLWDFOSReportServer' and statement like '%ALTER DATABASE%'
+ 
+
+---------------------------------------------------------------------------------
+--Query automatica do Andre
+
+Para logins, listar os ultimos logins feitos em 30 dias
+
+DECLARE @audit_name NVARCHAR(255) = 'LogonAttempts-Audit'; -- Nome do audit
+DECLARE @file_path NVARCHAR(MAX);
+DECLARE @file_path_Default NVARCHAR(MAX);
+DECLARE @full_path NVARCHAR(MAX)
+DECLARE @last_backslash_position INT;
+
+
+
+-- Obtém o caminho do arquivo de audit
+SELECT @full_path = audit_file_path
+FROM sys.dm_server_audit_status
+WHERE name = @audit_name;
+
+
+
+
+-- Localiza a posição do último '\'
+SET @last_backslash_position = LEN(@full_path) - CHARINDEX('\', REVERSE(@full_path)) + 1;
+
+-- Extrai o caminho, excluindo o nome do arquivo
+SELECT @file_path = LEFT(@full_path, @last_backslash_position - 1) + '\Logon*.sqlaudit'   
+SELECT @file_path_Default = LEFT(@full_path, @last_backslash_position - 1) + '\Defaul*.sqlaudit'  
+print @file_path
+
+
+
+
+
+-- Consulta o log do audit usando a função fn_get_audit_file
+SELECT server_principal_name, count(*) as Qty, max(event_time) As Last_Access, min(event_time) as First_Access
+FROM sys.fn_get_audit_file(@file_path , DEFAULT, DEFAULT)
+where action_id = 'LGIS'
+and  event_time >= getdate() -30
+group by server_principal_name
+
+--Para executar no NDW server:
+
+DECLARE @audit_name NVARCHAR(255) = 'LoginAudit'; -- Nome do audit
+DECLARE @file_path NVARCHAR(MAX);
+DECLARE @file_path_Default NVARCHAR(MAX);
+DECLARE @full_path NVARCHAR(MAX)
+DECLARE @last_backslash_position INT;
+
+
+
+-- Obtém o caminho do arquivo de audit
+SELECT @full_path = audit_file_path
+FROM sys.dm_server_audit_status
+WHERE name = @audit_name;
+
+
+-- Localiza a posição do último '\'
+SET @last_backslash_position = LEN(@full_path) - CHARINDEX('\', REVERSE(@full_path)) + 1;
+
+-- Extrai o caminho, excluindo o nome do arquivo
+SELECT @file_path = LEFT(@full_path, @last_backslash_position - 1) + '\Login*.sqlaudit'   
+SELECT @file_path_Default = LEFT(@full_path, @last_backslash_position - 1) + '\Defaul*.sqlaudit'  
+print @file_path
+
+
+-- Consulta o log do audit usando a função fn_get_audit_file
+SELECT server_principal_name, count(*) as Qty, max(event_time) As Last_Access, min(event_time) as First_Access
+FROM sys.fn_get_audit_file(@file_path , DEFAULT, DEFAULT)
+where action_id = 'LGIS'
+and  event_time >= getdate() -30
+group by server_principal_name
+
+
+--------------------------------------------------------------------------------------------------------------
+
+--Para logins, listar os ultimos logins que fizeram DDL em 30 dias
+
+
+DECLARE @audit_name NVARCHAR(255) = 'LogonAttempts-Audit'; -- Nome do audit
+DECLARE @file_path NVARCHAR(MAX);
+DECLARE @file_path_Default NVARCHAR(MAX);
+DECLARE @full_path NVARCHAR(MAX)
+DECLARE @last_backslash_position INT;
+
+
+
+-- Obtém o caminho do arquivo de audit
+SELECT @full_path = audit_file_path
+FROM sys.dm_server_audit_status
+WHERE name = @audit_name;
+
+
+
+
+-- Localiza a posição do último '\'
+SET @last_backslash_position = LEN(@full_path) - CHARINDEX('\', REVERSE(@full_path)) + 1;
+
+-- Extrai o caminho, excluindo o nome do arquivo
+SELECT @file_path = LEFT(@full_path, @last_backslash_position - 1) + '\Logon*.sqlaudit'   
+SELECT @file_path_Default = LEFT(@full_path, @last_backslash_position - 1) + '\Defaul*.sqlaudit'  
+print @file_path
+
+
+
+
+SELECT database_name, server_principal_name, count(*) as Qty, max(event_time) As Last_Access, min(event_time) as First_Access
+FROM sys.fn_get_audit_file(@file_path_default , DEFAULT, DEFAULT)
+where event_time >= getdate() -30
+group by database_name, server_principal_name
+
+
+---------------------------------------------------------------------------------
+--Mesmo q o anterios, mas com variaveis
+
+
+
+$Q_Logins = "DECLARE @audit_name NVARCHAR(255) = 'LogonAttempts-Audit'; -- Nome do audit
+DECLARE @file_path NVARCHAR(MAX);
+DECLARE @file_path_Default NVARCHAR(MAX);
+DECLARE @full_path NVARCHAR(MAX)
+DECLARE @last_backslash_position INT;
+
+
+
+-- Obtém o caminho do arquivo de audit
+SELECT @full_path = audit_file_path
+FROM sys.dm_server_audit_status
+WHERE name = @audit_name;
+
+
+
+
+-- Localiza a posição do último '\'
+SET @last_backslash_position = LEN(@full_path) - CHARINDEX('\', REVERSE(@full_path)) + 1;
+
+-- Extrai o caminho, excluindo o nome do arquivo
+SELECT @file_path = LEFT(@full_path, @last_backslash_position - 1) + '\Logon*.sqlaudit'   
+SELECT @file_path_Default = LEFT(@full_path, @last_backslash_position - 1) + '\Defaul*.sqlaudit'  
+print @file_path
+
+
+
+
+
+-- Consulta o log do audit usando a função fn_get_audit_file
+SELECT server_principal_name, count(*) as Qty, max(event_time) As Last_Access, min(event_time) as First_Access
+FROM sys.fn_get_audit_file(@file_path , DEFAULT, DEFAULT)
+where action_id = 'LGIS'
+and  event_time >= getdate() -30
+group by server_principal_name
+
+
+
+"
+
+
+$Q_DDL = "DECLARE @audit_name NVARCHAR(255) = 'LogonAttempts-Audit'; -- Nome do audit
+DECLARE @file_path NVARCHAR(MAX);
+DECLARE @file_path_Default NVARCHAR(MAX);
+DECLARE @full_path NVARCHAR(MAX)
+DECLARE @last_backslash_position INT;
+
+
+
+-- Obtém o caminho do arquivo de audit
+SELECT @full_path = audit_file_path
+FROM sys.dm_server_audit_status
+WHERE name = @audit_name;
+
+
+
+
+-- Localiza a posição do último '\'
+SET @last_backslash_position = LEN(@full_path) - CHARINDEX('\', REVERSE(@full_path)) + 1;
+
+-- Extrai o caminho, excluindo o nome do arquivo
+SELECT @file_path = LEFT(@full_path, @last_backslash_position - 1) + '\Logon*.sqlaudit'   
+SELECT @file_path_Default = LEFT(@full_path, @last_backslash_position - 1) + '\Defaul*.sqlaudit'  
+print @file_path
+
+
+
+
+SELECT database_name, server_principal_name, count(*) as Qty, max(event_time) As Last_Access, min(event_time) as First_Access
+FROM sys.fn_get_audit_file(@file_path_default , DEFAULT, DEFAULT)
+where event_time >= getdate() -30
+group by database_name, server_principal_name
+
+" 
+
+
+
+---------------------------------------------------------------------------------
+-- Para estimar o ultimo uso da tabela [e possivel usar o sys.dm_db_index_usage_stats
+colunas last_user_update, last_user_seek, etc
+
+https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-db-index-usage-stats-transact-sql?view=sql-server-ver16
+
+---------------------------------------------------------------------------------
+-- IN the context of a database, list the audit actions:
+
+SELECT 
+    das.name AS audit_specification_name,
+    dad.audit_action_name,
+    dad.class_desc,
+    dad.major_id,
+    dad.audit_action_id
+FROM 
+    sys.database_audit_specifications das
+JOIN 
+    sys.database_audit_specification_details dad 
+    ON das.database_specification_id = dad.database_specification_id;
+	
+
+---------------------------------------------------------------------------------
