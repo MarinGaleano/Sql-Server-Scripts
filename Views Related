@@ -1,0 +1,89 @@
+-- Refresh views with table definition changes:
+
+https://stackoverflow.com/questions/1272829/why-do-sql-server-views-needs-to-be-refreshed-every-once-in-a-while
+
+https://learn.microsoft.com/pt-br/sql/relational-databases/system-stored-procedures/sp-refreshview-transact-sql?view=sql-server-ver16
+
+-- How do I identify views with broken dependencies in SQL Server?
+https://stackoverflow.com/questions/6616245/how-do-i-identify-views-with-broken-dependencies-in-sql-server
+
+
+DECLARE @stmt       NVARCHAR(MAX) = '';
+DECLARE @vw_schema  NVARCHAR(255);
+DECLARE @vw_name    NVARCHAR(255);
+
+CREATE TABLE #badViews 
+(    
+      [schema]  NVARCHAR(255)   
+    , name      NVARCHAR(255)
+    , error     NVARCHAR(MAX) 
+);
+
+CREATE TABLE #nullData
+(  
+    null_data VARCHAR(1)
+);
+
+DECLARE tbl_cursor CURSOR FORWARD_ONLY READ_ONLY
+FOR
+    SELECT
+          SCHEMA_NAME(schema_id) AS [schema]
+        , name
+    FROM
+        sys.objects 
+    WHERE
+        [type] = 'v';
+
+OPEN tbl_cursor;
+FETCH NEXT FROM tbl_cursor INTO @vw_schema, @vw_name;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @stmt = CONCAT(N'SELECT TOP 1 NULL FROM ', @vw_schema, N'.', @vw_name);
+
+    BEGIN TRY
+      -- silently execute the "select from view" query
+        INSERT INTO #nullData EXECUTE sp_executesql @stmt;
+    END TRY 
+    BEGIN CATCH
+        INSERT INTO #badViews ([schema], name, error)
+        VALUES (@vw_schema, @vw_name, ERROR_MESSAGE());
+    END CATCH
+
+    FETCH NEXT FROM tbl_cursor INTO @vw_schema, @vw_name;
+END
+
+CLOSE tbl_cursor;
+DEALLOCATE tbl_cursor;    
+
+-- print the views with errors when executed
+SELECT * FROM #badViews;
+
+DROP TABLE #badViews;
+DROP TABLE #nullData;
+
+--------------------------------------------------------------------------------------------
+-- Call sp_refreshsqlmodule on all non-schema bound stored procedures:
+
+DECLARE @template AS varchar(max) 
+SET @template = 'PRINT ''{OBJECT_NAME}'' 
+EXEC sp_refreshsqlmodule ''{OBJECT_NAME}'' 
+
+' 
+
+DECLARE @sql AS varchar(max) 
+
+SELECT  @sql = ISNULL(@sql, '') + REPLACE(@template, '{OBJECT_NAME}', 
+                                          QUOTENAME(ROUTINE_SCHEMA) + '.' 
+                                          + QUOTENAME(ROUTINE_NAME)) 
+FROM    INFORMATION_SCHEMA.ROUTINES 
+WHERE   OBJECTPROPERTY(OBJECT_ID(QUOTENAME(ROUTINE_SCHEMA) + '.' 
+                                 + QUOTENAME(ROUTINE_NAME)), 
+                       N'IsSchemaBound') IS NULL 
+        OR OBJECTPROPERTY(OBJECT_ID(QUOTENAME(ROUTINE_SCHEMA) + '.' 
+                                    + QUOTENAME(ROUTINE_NAME)), 
+                          N'IsSchemaBound') = 0 
+
+        EXEC ( 
+              @sql 
+            ) 
