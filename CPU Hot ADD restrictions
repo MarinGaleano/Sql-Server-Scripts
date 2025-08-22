@@ -1,0 +1,18 @@
+-- Hot ADD CPU
+
+https://learn.microsoft.com/en-us/sql/relational-databases/thread-and-task-architecture-guide?view=sql-server-ver16
+
+Hot add CPU
+Hot add CPU is the ability to dynamically add CPUs to a running system. Adding CPUs can occur physically by adding new hardware, logically by online hardware partitioning, or virtually through a virtualization layer. SQL Server supports hot add CPU.
+
+Requirements for hot add CPU:
+
+Requires hardware that supports hot add CPU.
+Requires a supported version of Windows Server Datacenter or Enterprise edition. Starting with Windows Server 2012, hot add is supported on Standard edition.
+Requires SQL Server Enterprise edition.
+SQL Server can't be configured to use soft NUMA. For more information about soft NUMA, see Soft-NUMA (SQL Server).
+SQL Server doesn't automatically use CPUs after they are added. This prevents SQL Server from using CPUs that might be added for some other purpose. After adding CPUs, execute the RECONFIGURE statement, so that SQL Server will recognize the new CPUs as available resources.
+
+ Note
+
+If the affinity64 mask is configured, the affinity64 mask must be modified to use the new CPUs.
