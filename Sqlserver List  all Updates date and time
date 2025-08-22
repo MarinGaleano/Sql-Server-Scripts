@@ -1,0 +1,18 @@
+--List Sql server latest updates:
+
+-- Go to this directory and see the latest KB directory date-time
+C:\Program Files\Microsoft SQL Server\XXX\Setup Bootstrap\Update Cache
+
+or on powershell with dba_tools:
+
+PS C:\Users\adm_jgalean8> Get-DbaInstalledPatch -ComputerName spolwgcct00146
+
+ComputerName   Name                                                 Version     InstallDate
+------------   ----                                                 -------     -----------
+spolwgcct00146 Hotfix 4083 for SQL Server 2019 (KB4583459) (64-bit) 15.0.4083.2 08 Jun 2021
+spolwgcct00146 Hotfix 4236 for SQL Server 2019 (KB5014353) (64-bit) 15.0.4236.7 06 Dec 2022
+spolwgcct00146 Hotfix 4223 for SQL Server 2019 (KB5011644) (64-bit) 15.0.4223.1 06 Dec 2022
+spolwgcct00146 Hotfix 4280 for SQL Server 2019 (KB5021124) (64-bit) 15.0.4280.7 30 Jan 2024
+
+-- Do site da Microsoft, lista dos ultimos patches disponiveis para instalacaoÇ
+https://learn.microsoft.com/en-us/troubleshoot/sql/releases/download-and-install-latest-updates
