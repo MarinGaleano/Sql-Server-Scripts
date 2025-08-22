@@ -1,0 +1,18 @@
+-- conexão remota dedicada para administrador (DAC) no SQL Server
+https://dirceuresende.com/blog/habilitando-e-utilizando-a-conexao-remota-dedicada-para-administrador-dac-no-sql-server/#
+
+para conectar pelo SSMS:
+Na tela de login, conectar como admin assim: ADMIN:adm_jgalean8
+---------------------------------------------------------------------------------
+Para erros de conexao no SSMS, error 26 Locating server/instance, usar a sintaxe abaixo, incluindo a porta, e sem espaços
+Verificar na configuracao do SqlServer Networking Configuration\ Protocols for Instance\TCPIP
+ou verificar a porta no Merlin: https://merlin.apps.px-prd04.cf.t-mobile.com/reports/servers/4364
+
+SEVERNAME\instance_name,porta
+ex: psqlvsgis05\gis05,53000
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
