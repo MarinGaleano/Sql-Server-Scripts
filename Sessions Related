@@ -1,0 +1,951 @@
+-- Sessions related
+---------------------------------------------------------------------------------
+-- Filtering failed logins
+https://forums.ivanti.com/s/article/How-To-Use-SQL-Profiler-to-Monitor-Login-Failures-on-The-SQL-Server?language=en_US
+
+---------------------------------------------------------------------------------
+https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-exec-sessions-transact-sql?view=sql-server-ver16
+
+-- Total
+select count(*) from sys.dm_exec_sessions;
+
+-- Count sessions per user
+SELECT login_name,
+    COUNT(session_id) AS session_count
+FROM sys.dm_exec_sessions
+GROUP BY login_name;
+
+
+--Count sessions per status
+SELECT login_name,program_name, status,
+    COUNT(session_id) AS session_count
+FROM sys.dm_exec_sessions
+GROUP BY login_name,program_name,status;
+---------------------------------------------------------------------------------
+-- Check log usage:
+
+select name, log_reuse_wait_desc
+from sys.databases
+
+---------------------------------------------------------------------------------
+Listar os planos de execucao atuais:
+
+exec sp_WhoIsActive @get_plans = 1
+
+--ou (so funciona para sessoes ativas
+Query: Show Execution Plan for a Given Session ID
+
+DECLARE @SessionId INT = <YourSessionId>;  -- Replace with your session_id
+
+SELECT 
+    r.session_id,
+    r.status,
+    r.command,
+    r.start_time,
+    t.text AS sql_text,
+    qp.query_plan
+FROM sys.dm_exec_requests r
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t
+CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) qp
+WHERE r.session_id = @SessionId;
+
+🧠 Notes:
+This returns the execution plan XML in the query_plan column.
+
+If you're using SQL Server Management Studio (SSMS), click the query_plan XML to open the graphical plan viewer.
+
+Only works for active sessions — once the session is gone, the plan is gone unless it's cached.
+
+---------------------------------------------------------------------------------
+List long running queries and current wait class
+
+SELECT
+    r.session_id,
+    r.status,
+    r.command,
+    r.cpu_time / 1000.0 AS cpu_time_sec,
+    r.total_elapsed_time / 1000.0 AS elapsed_time_sec,
+    r.wait_type,
+    r.wait_time / 1000.0 AS wait_time_sec,
+    r.blocking_session_id,
+    DB_NAME(r.database_id) AS database_name,
+    SUBSTRING(t.text, (r.statement_start_offset / 2) + 1,
+              CASE 
+                  WHEN r.statement_end_offset = -1 THEN LEN(CONVERT(NVARCHAR(MAX), t.text)) 
+                  ELSE (r.statement_end_offset - r.statement_start_offset) / 2 + 1 
+              END) AS query_text
+FROM sys.dm_exec_requests AS r
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+WHERE r.session_id <> @@SPID
+AND r.total_elapsed_time > 5000 -- Running for more than 5 seconds
+ORDER BY r.total_elapsed_time DESC;
+
+-- Exclude internal processes
+SELECT
+    r.session_id,
+s.login_name,
+    r.status,
+    r.command,
+    r.cpu_time / 1000.0 AS cpu_time_sec,
+    r.total_elapsed_time / 1000.0 AS elapsed_time_sec,
+    r.wait_type,
+    r.wait_time / 1000.0 AS wait_time_sec,
+    r.blocking_session_id,
+    DB_NAME(r.database_id) AS database_name,
+    SUBSTRING(t.text, (r.statement_start_offset / 2) + 1,
+              CASE 
+                  WHEN r.statement_end_offset = -1 THEN LEN(CONVERT(NVARCHAR(MAX), t.text)) 
+                  ELSE (r.statement_end_offset - r.statement_start_offset) / 2 + 1 
+              END) AS query_text
+FROM sys.dm_exec_requests AS r
+INNER JOIN sys.dm_exec_sessions AS s
+    ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+WHERE r.session_id <> @@SPID
+AND s.is_user_process = 1 -- Excludes internal/system sessions
+AND r.total_elapsed_time > 5000 -- Only queries running longer than 5 seconds
+ORDER BY r.total_elapsed_time DESC;
+
+
+---------------------------------------------------------------------------------
+--To list active sessions in SQL Server with details such as SPID, status, login name, host name, database name, and current command, filtered by a specific username, you can use the following query:
+-- Version to generate only the kill command
+-- Generate  kill for a login name
+SELECT
+    s.session_id AS spid,
+    s.status,
+    s.login_name,
+	s.program_name, 
+    s.host_name,
+    DB_NAME(r.database_id) AS database_name,
+    r.command AS running_command
+FROM
+    sys.dm_exec_sessions s
+LEFT JOIN
+    sys.dm_exec_requests r ON s.session_id = r.session_id
+WHERE
+    s.login_name = 'GSM1900\PPorwal3';  -- Replace with actual login name
+
+-- Generate kill for all sessions in a database
+
+SELECT 
+    'KILL ' + CAST(s.session_id AS VARCHAR(5)) AS KillCommand,
+    s.session_id,
+    s.login_name,
+    s.host_name,
+    s.program_name,
+    s.status, d.name
+FROM sys.dm_exec_sessions s
+JOIN sys.databases d ON s.database_id = d.database_id
+WHERE d.name = 'DICMDB03'
+  AND s.session_id <> @@SPID;  -- Exclude current session
+
+-------------------------------------------------------------------------  
+--If you want to automatically execute them:
+
+DECLARE @DatabaseName SYSNAME = 'YourDatabaseName';
+DECLARE @SQL NVARCHAR(MAX) = '';
+
+SELECT @SQL += 'KILL ' + CAST(s.session_id AS VARCHAR(5)) + '; '
+FROM sys.dm_exec_sessions s
+JOIN sys.databases d ON s.database_id = d.database_id
+WHERE d.name = @DatabaseName
+  AND s.session_id <> @@SPID;
+
+EXEC (@SQL);
+
+-------------------------------------------
+-- Version to generate and run kill comand:
+
+DECLARE @spid INT
+
+DECLARE kill_cursor CURSOR FOR
+SELECT session_id
+FROM sys.dm_exec_sessions
+WHERE login_name = 'someuser' AND session_id <> @@SPID
+
+OPEN kill_cursor
+FETCH NEXT FROM kill_cursor INTO @spid
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    EXEC('KILL ' + @spid)
+    FETCH NEXT FROM kill_cursor INTO @spid
+END
+
+CLOSE kill_cursor
+DEALLOCATE kill_cursor
+
+
+---------------------------------------------------------------------------------
+-- Now Generate a KILL command for a specific user
+
+SELECT 
+    'KILL ' + CAST(session_id AS VARCHAR(10)) + ';' AS kill_command
+FROM 
+    sys.dm_exec_sessions
+WHERE 
+    login_name = 'GSM1900\PPorwal3'
+    AND session_id <> @@SPID;  -- Exclude your own session
+	
+	
+
+---------------------------------------------------------------------------------
+
+
+-- List long running queries and estimated time to finish
+-- This will work only for these commands:
+ALTER INDEX REORGANIZE | AUTO_SHRINK option with ALTER DATABASE | BACKUP DATABASE | DBCC CHECKDB | DBCC CHECKFILEGROUP
+DBCC CHECKTABLE | DBCC INDEXDEFRAG | DBCC SHRINKDATABASE | DBCC SHRINKFILE | RECOVERY | RESTORE DATABASE | ROLLBACK | TDE ENCRYPTION
+
+	SELECT
+		session_id,
+		   percent_complete, 
+		   start_time, 
+		   status, 
+		   command, 
+		   estimated_completion_time, 
+		   DATEADD(ms,estimated_completion_time,GETDATE()) AS EstimatedEndTime, 
+		   cpu_time, 
+		   total_elapsed_time
+	FROM sys.dm_exec_requests
+WHERE session_id = 65
+
+	declare @cmd varchar(4000) = ' '
+	declare @ct int
+	set @ct=1
+	while @ct <= 50
+	begin
+		SELECT
+		session_id,
+		   percent_complete, 
+		   start_time, 
+		   status, 
+		   command, 
+		   estimated_completion_time, 
+		   DATEADD(ms,estimated_completion_time,GETDATE()) AS EstimatedEndTime, 
+		   cpu_time, 
+		   total_elapsed_time 
+	FROM sys.dm_exec_requests
+	where session_id=178
+	WAITFOR DELAY '00:00:03'
+	set @ct=@ct+1
+	end
+---------------------------------------------------------------------------------
+-- List connections on a particular database
+
+SELECT 
+    c.session_id,
+    s.login_name,
+    s.host_name,
+    s.program_name,
+    s.status,
+    s.cpu_time,
+    s.memory_usage,
+    s.login_time,
+    r.status AS request_status,
+    r.command,
+    r.start_time,
+    DB_NAME(r.database_id) AS database_name
+FROM sys.dm_exec_sessions s
+JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+LEFT JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+WHERE DB_NAME(ISNULL(r.database_id, s.database_id)) = 'LeaseCalcPro_UAT';
+
+
+---------------------------------------------------------------------------------
+-- List running proccess
+SELECT sqltext.TEXT, req.session_id, req.status, req.command, req.cpu_time, req.total_elapsed_time 
+FROM sys.dm_exec_requests req 
+CROSS APPLY sys.dm_exec_sql_text(sql_handle) AS sqltext
+GO
+---------------------------------------------------------------------------------
+-- List what query is running on a session
+
+SELECT      r.start_time [Start Time],session_ID [SPID],
+            DB_NAME(database_id) [Database],
+            SUBSTRING(t.text,(r.statement_start_offset/2)+1,
+            CASE WHEN statement_end_offset=-1 OR statement_end_offset=0
+            THEN (DATALENGTH(t.Text)-r.statement_start_offset/2)+1
+            ELSE (r.statement_end_offset-r.statement_start_offset)/2+1
+            END) [Executing SQL],
+            Status,command,wait_type,wait_time,wait_resource,
+            last_wait_type
+FROM        sys.dm_exec_requests r
+OUTER APPLY sys.dm_exec_sql_text(sql_handle) t
+WHERE       session_id != @@SPID -- don't show this query
+AND         session_id = 31 -- don't show system queries
+ORDER BY    r.start_time
+
+-- or supressing master/backgrond processes
+SELECT      r.start_time [Start Time],session_ID [SPID],
+            DB_NAME(database_id) [Database],
+            SUBSTRING(t.text,(r.statement_start_offset/2)+1,
+            CASE WHEN statement_end_offset=-1 OR statement_end_offset=0
+            THEN (DATALENGTH(t.Text)-r.statement_start_offset/2)+1
+            ELSE (r.statement_end_offset-r.statement_start_offset)/2+1
+            END) [Executing SQL],
+            Status,command,wait_type,wait_time,wait_resource,
+            last_wait_type
+FROM        sys.dm_exec_requests r
+OUTER APPLY sys.dm_exec_sql_text(sql_handle) t
+WHERE       session_id != @@SPID -- don't show this query 
+and DB_NAME(database_id)!='master'
+ORDER BY    r.start_time
+
+
+---------------------------------------------------------------------------------
+-- List blocking session three, by IBM ICA AI
+SELECT 
+        b.session_id AS BlockingSessionID,
+        b.blocking_session_id AS BlockedSessionID,
+        b.wait_type AS WaitType,
+        b.wait_resource AS WaitResource,
+        b.last_wait_type AS LastWaitType,
+        b.wait_time AS WaitTimeMS,
+        b.total_elapsed_time AS TotalElapsedTimeMS,
+        b.status AS SessionStatus,
+        b.command AS SessionCommand,
+        b.cpu_time AS CPUTime,
+   
+        t1.text AS BlockingQuery,
+        t2.text AS BlockedQuery
+FROM 
+    sys.dm_exec_requests b
+CROSS APPLY 
+    sys.Dm_exec_sql_text(b.sql_handle) AS t1
+LEFT JOIN 
+    sys.dm_exec_requests b2
+CROSS APPLY 
+    sys.Dm_exec_sql_text(b2.sql_handle) AS t2
+ON 
+    b.blocking_session_id = b2.session_id
+WHERE 
+    b.blocking_session_id IS NOT NULL
+ORDER BY 
+    b.blocking_session_id;
+	
+-- From CHATGPT Alternative: View the blocking tree (all sessions)
+SELECT
+    r.session_id,
+    r.blocking_session_id,
+    s.login_name,
+    s.host_name,
+    r.status,
+    r.wait_type,
+    r.wait_time,
+    t.text AS [SQL Text]
+FROM sys.dm_exec_requests r
+JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t
+WHERE r.blocking_session_id <> 0;
+
+--------------------------------------------------------------------------------
+--Find blocking sessions
+
+	SELECT wait_time/1000 Seconds, blocking_session_id, * 
+	FROM sys.dm_exec_requests
+	WHERE blocking_session_id <> 0 
+	order by 1,2 desc
+
+	SELECT wait_time/1000 Seconds, blocking_session_id, * 
+	FROM sys.dm_exec_requests
+	WHERE blocking_session_id <> 0 and wait_time > 500000
+	order by 1,2 desc
+	
+------------------------------------
+Display blocking tree:
+
+/*  SQL Blocking Tree w/Cursor info
+Thanks SQL Server Expert JOHNNYBNO 
+*/
+IF OBJECT_ID('tempdb..#Blocks') IS NOT NULL
+    DROP TABLE #Blocks
+SELECT   spid
+        ,blocked
+        ,REPLACE (REPLACE (st.TEXT, CHAR(10), ' '), CHAR (13), ' ' ) AS batch
+INTO     #Blocks
+FROM     sys.sysprocesses spr
+	CROSS APPLY sys.dm_exec_sql_text(spr.SQL_HANDLE) st
+GO
+ 
+WITH BlockingTree (spid, blocking_spid, [level], batch)
+AS
+(
+    SELECT   blc.spid
+            ,blc.blocked
+            ,CAST (REPLICATE ('0', 4-LEN (CAST (blc.spid AS VARCHAR))) + CAST (blc.spid AS VARCHAR) AS VARCHAR (1000)) AS [level]
+            ,blc.batch
+    FROM    #Blocks blc
+    WHERE   (blc.blocked = 0 OR blc.blocked = SPID) AND
+			EXISTS (SELECT * FROM #Blocks blc2 WHERE blc2.BLOCKED = blc.SPID AND blc2.BLOCKED <> blc2.SPID)
+    UNION ALL
+    SELECT   blc.spid
+            ,blc.blocked
+            ,CAST(bt.[level] + RIGHT (CAST ((1000 + blc.SPID) AS VARCHAR (100)), 4) AS VARCHAR (1000)) AS [level]
+            ,blc.batch
+    FROM     #Blocks AS blc
+		INNER JOIN BlockingTree bt 
+			ON	blc.blocked = bt.SPID
+    WHERE   blc.blocked > 0 AND
+			blc.blocked <> blc.SPID
+)
+SELECT	N'' + ISNULL(REPLICATE (N'|         ', LEN (LEVEL)/4 - 2),'')
+        + CASE WHEN (LEN(LEVEL)/4 - 1) = 0 THEN '' ELSE '|------  ' END
+        + CAST (bt.SPID AS NVARCHAR (10)) AS BlockingTree
+        ,spr.lastwaittype   AS [Type]
+        ,spr.loginame       AS [Login Name]
+        ,DB_NAME(spr.dbid)  AS [Source database]
+        ,st.text            AS [SQL Text]
+		,CASE WHEN cur.sql_handle IS NULL THEN '' ELSE (SELECT [TEXT] FROM sys.dm_exec_sql_text (cur.sql_handle)) END  AS [Cursor SQL Text]
+        ,DB_NAME(sli.rsc_dbid)  AS [Database]
+		,OBJECT_SCHEMA_NAME(sli.rsc_objid,sli.rsc_dbid) AS [Schema]
+		,OBJECT_NAME(sli.rsc_objid, sli.rsc_dbid) AS [Table]
+        ,spr.waitresource   AS [Wait Resource]
+        ,spr.cmd            AS [Command]
+        ,spr.program_name   AS [Application]
+        ,spr.hostname       AS [HostName]
+        ,spr.last_batch     AS [Last Batch Time]
+FROM BlockingTree bt
+	LEFT OUTER JOIN sys.sysprocesses spr 
+		ON	spr.spid = bt.spid
+	CROSS APPLY sys.dm_exec_sql_text(spr.SQL_HANDLE) st
+	LEFT JOIN sys.dm_exec_cursors(0) cur
+		ON	cur.session_id = spr.spid AND
+			cur.fetch_status != 0
+	JOIN sys.syslockinfo sli
+		ON	sli.req_spid = spr.spid AND
+			sli.rsc_type = 5 AND
+			OBJECT_NAME(sli.rsc_objid, sli.rsc_dbid) IS NOT NULL
+ORDER BY LEVEL ASC
+
+---------------------------------------------------------------------------------
+Tstar este do Leonardo, rodar sempre os 2 juntos:
+
+select 'Block' Tipo, sp.Spid, sp.Blocked, sp.Open_Tran, sp.Status, sp.waittime/1000 [waittime/seg], 
+        sp.Last_Batch, sp.HostName, sp.NT_UserName, sp.[Program_Name],     
+       (SELECT [text] FROM sys.dm_exec_sql_text(sp.sql_handle)) Command, 
+        db_name(dbid) DBName, sp.Loginame, sp.WaitResource, 
+        sp.hostprocess, sysjobs.name as Job_Name 
+FROM    sys.sysprocesses sp 
+LEFT JOIN msdb..sysjobs WITH (NOLOCK) 
+ON  job_id LIKE '%' + SUBSTRING(PROGRAM_NAME, 55, 7) + '%' 
+AND   PROGRAM_NAME LIKE  'SQLAgent%' 
+AND  PROGRAM_NAME NOT LIKE 'SQLAgent - Job Manager%' 
+AND  PROGRAM_NAME NOT LIKE 'SQLAgent - Alert Engine%' 
+AND  PROGRAM_NAME NOT LIKE 'SQLAgent - Generic Refresher%' 
+AND  PROGRAM_NAME NOT LIKE 'SQLAgent - Job invocation engine%' 
+where spid in (select blocked from sys.sysprocesses where blocked > 0) and blocked = 0 
+
+
+select 'Wait' Tipo, sp.Spid, sp.Blocked, sp.Open_Tran, sp.Status, sp.waittime/1000 [waittime/seg], 
+        sp.Last_Batch, sp.HostName, sp.NT_UserName, sp.[Program_Name],     
+       (SELECT [text] FROM sys.dm_exec_sql_text(sp.sql_handle)) Command, 
+        db_name(dbid) DBName, sp.Loginame, sp.WaitResource, 
+        sp.hostprocess, sysjobs.name as Job_Name 
+FROM    sys.sysprocesses sp 
+LEFT JOIN msdb..sysjobs WITH (NOLOCK) 
+ON  job_id LIKE '%' + SUBSTRING(PROGRAM_NAME, 55, 7) + '%' 
+AND   PROGRAM_NAME LIKE  'SQLAgent%' 
+AND  PROGRAM_NAME NOT LIKE 'SQLAgent - Job Manager%' 
+AND  PROGRAM_NAME NOT LIKE 'SQLAgent - Alert Engine%' 
+AND  PROGRAM_NAME NOT LIKE 'SQLAgent - Generic Refresher%' 
+AND  PROGRAM_NAME NOT LIKE 'SQLAgent - Job invocation engine%' 
+where spid in (select spid from sys.sysprocesses where blocked > 0) 
+
+---------------------------------------------------------------------------------
+--Sessions por hostname de origem
+
+distinct select distinct hostname, loginame, last_batch
+from sys.sysprocesses
+--where blocked > 0
+where dbid = db_id('NCI')
+and loginame = 'NCIUser'
+order by loginame, hostname, last_batch desc
+
+--
+ 
+SELECT 
+    DB_NAME(dbid) as DBName, 
+    COUNT(dbid) as NumberOfConnections,
+    loginame as LoginName,
+	hostname
+FROM
+    sys.sysprocesses
+WHERE 
+    dbid > 0
+	 and loginame = 'NCIUser'
+GROUP BY 
+    dbid, loginame, hostname
+;
+ 
+
+select distinct hostname
+  from   sys.sysprocesses
+WHERE 
+    dbid > 0
+	and loginame = 'NCIUser'
+GROUP BY 
+     hostname
+
+ 
+
+ 
+
+
+---------------------------------------------------------------------------------
+https://learn.microsoft.com/pt-br/troubleshoot/sql/database-engine/performance/troubleshoot-high-cpu-usage-issues
+
+--* Identificar consultas que contribuem para o uso da CPU
+--[CPU from Queries as Percent of Total CPU Capacity]
+
+DECLARE @init_sum_cpu_time int,
+        @utilizedCpuCount int 
+--get CPU count used by SQL Server
+SELECT @utilizedCpuCount = COUNT( * )
+FROM sys.dm_os_schedulers
+WHERE status = 'VISIBLE ONLINE' 
+--calculate the CPU usage by queries OVER a 5 sec interval 
+SELECT @init_sum_cpu_time = SUM(cpu_time) FROM sys.dm_exec_requests
+WAITFOR DELAY '00:00:05'
+SELECT CONVERT(DECIMAL(5,2), ((SUM(cpu_time) - @init_sum_cpu_time) / (@utilizedCpuCount * 5000.00)) * 100) AS [CPU from Queries as Percent of Total CPU Capacity] 
+FROM sys.dm_exec_requests
+go
+
+----------------------------------------------------------
+--* Para identificar as consultas responsáveis pela atividade alta da CPU no momento
+
+SELECT TOP 10 s.session_id,
+           r.status,
+		   s.database_id,
+           r.cpu_time,
+           r.logical_reads,
+           r.reads,
+           r.writes,
+           r.total_elapsed_time / (1000 * 60) 'Elaps M',
+           SUBSTRING(st.TEXT, (r.statement_start_offset / 2) + 1,
+           ((CASE r.statement_end_offset
+                WHEN -1 THEN DATALENGTH(st.TEXT)
+                ELSE r.statement_end_offset
+            END - r.statement_start_offset) / 2) + 1) AS statement_text,
+           COALESCE(QUOTENAME(DB_NAME(st.dbid)) + N'.' + QUOTENAME(OBJECT_SCHEMA_NAME(st.objectid, st.dbid)) 
+           + N'.' + QUOTENAME(OBJECT_NAME(st.objectid, st.dbid)), '') AS command_text,
+           r.command,
+           s.login_name,
+           s.host_name,
+           s.program_name,
+           s.last_request_end_time,
+           s.login_time,
+           r.open_transaction_count
+FROM sys.dm_exec_sessions AS s
+JOIN sys.dm_exec_requests AS r ON r.session_id = s.session_id CROSS APPLY sys.Dm_exec_sql_text(r.sql_handle) AS st
+WHERE r.session_id != @@SPID
+ORDER BY r.cpu_time DESC
+
+-- ou, ordernar por uso de CPU
+
+SELECT
+    [req].[session_id],
+    [req].[start_time],
+    [req].[cpu_time] AS [cpu_time_ms],
+    OBJECT_NAME([ST].[objectid], [ST].[dbid]) AS [ObjectName],
+    SUBSTRING(
+        REPLACE(
+            REPLACE(
+                SUBSTRING(
+                    [ST].[text], ([req].[statement_start_offset] / 2) + 1,
+                    ((CASE [req].[statement_end_offset]
+                            WHEN -1 THEN DATALENGTH([ST].[text])
+                            ELSE [req].[statement_end_offset]
+                        END - [req].[statement_start_offset]
+                        ) / 2
+                    ) + 1
+                ), CHAR(10), ' '
+            ), CHAR(13), ' '
+        ), 1, 512
+    ) AS [statement_text]
+FROM
+    [sys].[dm_exec_requests] AS [req]
+    CROSS APPLY [sys].dm_exec_sql_text([req].[sql_handle]) AS [ST]
+ORDER BY
+    [req].[cpu_time] DESC;
+GO
+
+-- Lista por ordem de CPU (Cumulativo por sessao) e mostra os logins e hostnames
+
+SELECT TOP 10 s.session_id,
+	s.login_name,
+           r.status,
+           r.cpu_time / 1000.0 AS cpu_time_sec,
+           r.logical_reads,
+           r.reads,
+           r.writes,
+           r.total_elapsed_time / (1000 * 60) 'Elaps M',
+           SUBSTRING(st.TEXT, (r.statement_start_offset / 2) + 1,
+           ((CASE r.statement_end_offset
+                WHEN -1 THEN DATALENGTH(st.TEXT)
+                ELSE r.statement_end_offset
+            END - r.statement_start_offset) / 2) + 1) AS statement_text,
+           COALESCE(QUOTENAME(DB_NAME(st.dbid)) + N'.' + QUOTENAME(OBJECT_SCHEMA_NAME(st.objectid, st.dbid)) 
+           + N'.' + QUOTENAME(OBJECT_NAME(st.objectid, st.dbid)), '') AS command_text,
+           r.command,
+           s.host_name,
+           s.program_name,
+           s.last_request_end_time,
+           s.login_time,
+           r.open_transaction_count
+FROM sys.dm_exec_sessions AS s
+JOIN sys.dm_exec_requests AS r ON r.session_id = s.session_id CROSS APPLY sys.Dm_exec_sql_text(r.sql_handle) AS st
+WHERE r.session_id != @@SPID
+ORDER BY r.cpu_time DESC
+
+
+
+--- historical cpu bound queries
+SELECT TOP 10  qs.last_execution_time, st.text AS batch_text,
+    SUBSTRING(st.TEXT, (qs.statement_start_offset / 2) + 1, ((CASE qs.statement_end_offset WHEN - 1 THEN DATALENGTH(st.TEXT) ELSE qs.statement_end_offset END - qs.statement_start_offset) / 2) + 1) AS statement_text,
+    (qs.total_worker_time / 1000) / qs.execution_count AS avg_cpu_time_ms,
+    (qs.total_elapsed_time / 1000) / qs.execution_count AS avg_elapsed_time_ms,
+    qs.total_logical_reads / qs.execution_count AS avg_logical_reads,
+    (qs.total_worker_time / 1000) AS cumulative_cpu_time_all_executions_ms,
+    (qs.total_elapsed_time / 1000) AS cumulative_elapsed_time_all_executions_ms
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(sql_handle) st
+ORDER BY(qs.total_worker_time / qs.execution_count) DESC
+
+--- Queries by elapsed time > 5sec
+
+SELECT STATUS
+    ,total_elapsed_time
+    ,TEXT
+FROM sys.dm_exec_requests a
+CROSS APPLY sys.dm_exec_sql_text(sql_handle) b
+WHERE STATUS = 'running'
+    AND TEXT LIKE '%Insert%'
+    AND text NOT LIKE 'SELECT STATUS%TOTAL_ELAPSED_TIME%sys.dm_exec_requests%'
+    AND total_elapsed_time > '5'
+ORDER BY a.start_time DESC
+        ,a.statement_start_offset DESC
+        ,a.statement_end_offset DESC
+        ,total_elapsed_time DESC
+		
+	  
+---------------------------------------------------------------------------------
+-- listar waits per sessions
+SELECT  *
+FROM    sys.dm_exec_session_wait_stats
+WHERE   session_id in (58)
+order by max_wait_time_ms desc
+
+SELECT  *
+FROM    sys.dm_exec_session_wait_stats
+order by session_id;
+
+
+--listar sessoes e queries por tempo de wait (nao cumulativo)
+
+SELECT      r.session_ID [SPID],
+            s.login_name,
+            r.start_time [Start Time],
+			r.Status,
+            wait_time [Wait seconds],
+            wait_type,
+            DB_NAME(r.database_id) [Database],
+            SUBSTRING(t.text,(r.statement_start_offset/2)+1,
+            CASE WHEN statement_end_offset=-1 OR statement_end_offset=0
+                 THEN (DATALENGTH(t.Text)-r.statement_start_offset/2)+1
+                 ELSE (r.statement_end_offset-r.statement_start_offset)/2+1
+            END) [Executing SQL],
+            command,
+            wait_resource,
+            last_wait_type
+FROM        sys.dm_exec_requests r
+JOIN        sys.dm_exec_sessions s
+      ON    r.session_id = s.session_id
+OUTER APPLY sys.dm_exec_sql_text(sql_handle) t
+WHERE       r.session_id != @@SPID -- don't show this query 
+  AND       DB_NAME(r.database_id) != 'master'
+ORDER BY    wait_time / 1000, r.start_time;
+
+
+
+---------------------------------------------------------------------------------
+-- Como persistir snapshots da dm_os_wait_stats em uma tabela administrativa para consultas do tipo AWR do oracle:
+https://www.mssqltips.com/sqlservertip/1949/sql-server-sysdmoswaitstats-dmv-queries/
+
+-- reset sys.dm_os_wait_stats DMV
+DBCC SQLPERF ('sys.dm_os_wait_stats', CLEAR);
+GO
+
+SELECT * FROM sys.dm_os_wait_stats;
+
+or see results in %
+
+WITH Waits AS 
+ ( 
+ SELECT  
+   wait_type,  
+   wait_time_ms / 1000. AS wait_time_s, 
+   100. * wait_time_ms / SUM(wait_time_ms) OVER() AS pct, 
+   ROW_NUMBER() OVER(ORDER BY wait_time_ms DESC) AS rn 
+ FROM sys.dm_os_wait_stats 
+ WHERE wait_type  
+   NOT IN 
+     ('CLR_SEMAPHORE', 'LAZYWRITER_SLEEP', 'RESOURCE_QUEUE', 
+   'SLEEP_TASK', 'SLEEP_SYSTEMTASK', 'SQLTRACE_BUFFER_FLUSH', 'WAITFOR', 
+   'CLR_AUTO_EVENT', 'CLR_MANUAL_EVENT') 
+   ) -- filter out additional irrelevant waits 
+    
+SELECT W1.wait_type, 
+ CAST(W1.wait_time_s AS DECIMAL(12, 2)) AS wait_time_s, 
+ CAST(W1.pct AS DECIMAL(12, 2)) AS pct, 
+ CAST(SUM(W2.pct) AS DECIMAL(12, 2)) AS running_pct 
+FROM Waits AS W1 
+ INNER JOIN Waits AS W2 ON W2.rn <= W1.rn 
+GROUP BY W1.rn,  
+ W1.wait_type,  
+ W1.wait_time_s,  
+ W1.pct 
+HAVING SUM(W2.pct) - W1.pct < 95; -- percentage threshold;
+----------------------------------------------------------------------------------
+---
+
+--Se as consultas não estiverem usando a CPU no momento, você poderá executar a seguinte instrução para procurar consultas históricas associadas à CPU:
+
+SELECT TOP 10 st.text AS batch_text,
+    SUBSTRING(st.TEXT, (qs.statement_start_offset / 2) + 1, ((CASE qs.statement_end_offset WHEN - 1 THEN DATALENGTH(st.TEXT) ELSE qs.statement_end_offset END - qs.statement_start_offset) / 2) + 1) AS statement_text,
+    (qs.total_worker_time / 1000) / qs.execution_count AS avg_cpu_time_ms,
+    (qs.total_elapsed_time / 1000) / qs.execution_count AS avg_elapsed_time_ms,
+    qs.total_logical_reads / qs.execution_count AS avg_logical_reads,
+    (qs.total_worker_time / 1000) AS cumulative_cpu_time_all_executions_ms,
+    (qs.total_elapsed_time / 1000) AS cumulative_elapsed_time_all_executions_ms
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(sql_handle) st
+ORDER BY(qs.total_worker_time / qs.execution_count) DESC
+
+--Execute a consulta a seguir para identificar consultas que causam alto uso da CPU e que contêm pelo menos um índice ausente no plano de consulta
+-- Captures the Total CPU time spent by a query along with the query plan and total executions
+SELECT
+    qs_cpu.total_worker_time / 1000 AS total_cpu_time_ms,
+    q.[text],
+    p.query_plan,
+    qs_cpu.execution_count,
+    q.dbid,
+    q.objectid,
+    q.encrypted AS text_encrypted
+FROM
+    (SELECT TOP 500 qs.plan_handle,
+     qs.total_worker_time,
+     qs.execution_count FROM sys.dm_exec_query_stats qs ORDER BY qs.total_worker_time DESC) AS qs_cpu
+CROSS APPLY sys.dm_exec_sql_text(plan_handle) AS q
+CROSS APPLY sys.dm_exec_query_plan(plan_handle) p
+WHERE p.query_plan.exist('declare namespace 
+        qplan = "http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+        //qplan:MissingIndexes')=1
+		
+
+-- Shows queries where Max and average CPU time exceeds 200 ms and executed more than 1000 times
+
+DECLARE @cputime_threshold_microsec INT = 200*1000
+DECLARE @execution_count INT = 1000
+SELECT qs.total_worker_time/1000 total_cpu_time_ms,
+       qs.max_worker_time/1000 max_cpu_time_ms,
+       (qs.total_worker_time/1000)/execution_count average_cpu_time_ms,
+       qs.execution_count,
+       q.[text]
+FROM sys.dm_exec_query_stats qs CROSS APPLY sys.dm_exec_sql_text(plan_handle) AS q
+WHERE (qs.total_worker_time/execution_count > @cputime_threshold_microsec
+        OR qs.max_worker_time > @cputime_threshold_microsec )
+        AND execution_count > @execution_count
+ORDER BY  qs.total_worker_time DESC 
+
+
+---------------------------------------------------------------------------------
+-- Recuperar as informações sobre as cinco principais consultas por tempo médio de CPU
+-- O exemplo a seguir retorna os planos e o tempo médio de CPU das cinco principais consultas.
+
+SELECT TOP 5 total_worker_time/execution_count AS [Avg CPU Time],  
+   plan_handle, query_plan   
+FROM sys.dm_exec_query_stats AS qs  
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle)  
+ORDER BY total_worker_time/execution_count DESC;  
+GO  
+
+---------------------------------------------------------------------------------
+-- Monitorar o progresso da consulta em tempo real, enquanto a consulta está em execução. 
+https://learn.microsoft.com/pt-br/sql/relational-databases/system-dynamic-management-views/sys-dm-exec-query-profiles-transact-sql?view=sql-server-ver16
+
+---------------------------------------------------------------------------------
+-- Wait stats
+-- Overall wait stats
+
+SELECT * 
+FROM sys.dm_os_wait_stats
+ORDER BY wait_time_ms DESC
+
+-- Session wait stats cumulative_cpu_time_all_executions_ms
+SELECT * 
+FROM sys.dm_exec_session_wait_stats
+where session_id=54
+ORDER BY session_id, wait_type
+---------------------------------------------------------------------------------
+Show open transactions:
+
+For all databases query sys.sysprocesses
+	SELECT * FROM sys.sysprocesses WHERE open_tran = 1
+or the current database use:
+	BCC OPENTRAN
+
+You can get all the information of active transaction by the help of below query
+
+SELECT
+trans.session_id AS [SESSION ID],
+ESes.host_name AS [HOST NAME],login_name AS [Login NAME],
+trans.transaction_id AS [TRANSACTION ID],
+tas.name AS [TRANSACTION NAME],tas.transaction_begin_time AS [TRANSACTION 
+BEGIN TIME],
+tds.database_id AS [DATABASE ID],DBs.name AS [DATABASE NAME]
+FROM sys.dm_tran_active_transactions tas
+JOIN sys.dm_tran_session_transactions trans
+ON (trans.transaction_id=tas.transaction_id)
+LEFT OUTER JOIN sys.dm_tran_database_transactions tds
+ON (tas.transaction_id = tds.transaction_id )
+LEFT OUTER JOIN sys.databases AS DBs
+ON tds.database_id = DBs.database_id
+LEFT OUTER JOIN sys.dm_exec_sessions AS ESes
+ON trans.session_id = ESes.session_id
+WHERE ESes.session_id IS NOT NULL
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Listar os planos de execucao atuais:
+
+--Plan de execucao
+exec sp_WhoIsActive @get_plans = 1
+
+--sorts the results for blocked_session_count column to check lead blockers and blocked sessions.
+EXEC sp_whoisactive @find_block_leaders = 1, @sort_order = '[blocked_session_count] DESC'
+
+-- sort by cpu consumers
+EXEC sp_whoisactive  @sort_order = '[CPU] DESC', @delta_interval = 1
+
+-- Filter and wild cards
+EXEC sp_WhoIsActive
+    @filter = '106',               
+    @filter_type = 'session' /*session, program, database, login, host*/;
+
+EXEC sp_WhoIsActive
+    @filter = 'StackOverflow',               
+    @filter_type = 'database' /*session, program, database, login, host*/;
+
+EXEC sp_WhoIsActive
+    @filter = 'CrappyApplication%',               
+    @filter_type = 'program' /*session, program, database, login, host*/;
+---------------------------------------------------------------------------------
+--status rápido com o sp_WhoIsActive
+
+exec master.dbo.sp_WhoIsActive  @sort_order= '[session_id] ASC', @get_plans =1, @get_locks = 1
+
+exec master.dbo.sp_WhoIsActive  @sort_order= '[session_id] ASC', @show_sleeping_spids = 2, @get_plans =1, @get_locks = 1
+
+exec master.dbo.sp_WhoIsActive  @sort_order= '[session_id] ASC', @show_sleeping_spids = 2, @filter ='dbname', @filter_type = 'database'
+
+exec master.dbo.sp_WhoIsActive  @sort_order= '[session_id] ASC', @show_sleeping_spids = 2, @filter ='host', @filter_type = 'xxx'
+
+exec master.dbo.sp_WhoIsActive  @sort_order= '[session_id] ASC', @show_sleeping_spids = 2, @filter ='user', @filter_type = 'login'
+
+exec master.dbo.sp_WhoIsActive  @sort_order= '[session_id] ASC', @show_sleeping_spids = 2, @filter ='127', @filter_type = 'session'
+
+---------------------------------------------------------------------------------
+--Executar default 
+EXEC sp_WhoIsActive
+    @filter = '',
+    @filter_type = 'session',
+    @not_filter = '',
+    @not_filter_type = 'session',
+    @show_own_spid = 0,
+    @show_system_spids = 0,
+    @show_sleeping_spids = 1,
+    @get_full_inner_text = 0,
+    @get_plans = 0,
+    @get_outer_command = 0,
+    @get_transaction_info = 0,
+    @get_task_info = 1,
+    @get_locks = 0,
+    @get_avg_time = 0,
+    @get_additional_info = 0,
+    @find_block_leaders = 0,
+    @delta_interval = 0,
+    @output_column_list = '[dd%][session_id][sql_text][sql_command][login_name][wait_info][tasks][tran_log%][cpu%][temp%][block%][reads%][writes%][context%][physical%][query_plan][locks][%]',
+    @sort_order = '[start_time] ASC',
+    @format_output = 1,
+    @destination_table = '',
+    @return_schema = 0,
+    @schema = NULL,
+    @help = 0
+---------------------------------------------------------------------------------
+--Find idle sessions that have open transactions
+
+SELECT s.*
+FROM sys.dm_exec_sessions AS s
+WHERE EXISTS (
+        SELECT *
+        FROM sys.dm_tran_session_transactions AS t
+        WHERE t.session_id = s.session_id
+    )
+    AND NOT EXISTS (
+        SELECT *
+        FROM sys.dm_exec_requests AS r
+        WHERE r.session_id = s.session_id
+    );
+----------------------------------------------------------------------------------
+--Find long-running cursors
+
+USE master;
+GO
+
+SELECT creation_time,
+    cursor_id,
+    name,
+    c.session_id,
+    login_name
+FROM sys.dm_exec_cursors(0) AS c
+INNER JOIN sys.dm_exec_sessions AS s
+    ON c.session_id = s.session_id
+WHERE DATEDIFF(mi, c.creation_time, GETDATE()) > 5;
+GO
+
+----------------------------------------------------------------------------------
+-- List Expensive Queries
+-- https://blog.sqlauthority.com/2021/03/17/sql-server-list-expensive-queries-updated-march-2021/
+
+SELECT TOP(50) qs.execution_count AS [Execution Count],
+(qs.total_logical_reads)*8/1024.0 AS [Total Logical Reads (MB)],
+(qs.total_logical_reads/qs.execution_count)*8/1024.0 AS [Avg Logical Reads (MB)],
+(qs.total_worker_time)/1000.0 AS [Total Worker Time (ms)],
+(qs.total_worker_time/qs.execution_count)/1000.0 AS [Avg Worker Time (ms)],
+(qs.total_elapsed_time)/1000.0 AS [Total Elapsed Time (ms)],
+(qs.total_elapsed_time/qs.execution_count)/1000.0 AS [Avg Elapsed Time (ms)],
+qs.creation_time AS [Creation Time]
+,t.text AS [Complete Query Text], qp.query_plan AS [Query Plan]
+FROM sys.dm_exec_query_stats AS qs WITH (NOLOCK)
+CROSS APPLY sys.dm_exec_sql_text(plan_handle) AS t
+CROSS APPLY sys.dm_exec_query_plan(plan_handle) AS qp
+WHERE t.dbid = DB_ID()
+-- ORDER BY qs.execution_count DESC OPTION (RECOMPILE);-- frequently ran query
+ ORDER BY [Total Logical Reads (MB)] DESC OPTION (RECOMPILE);-- High Disk Reading query
+-- ORDER BY [Avg Worker Time (ms)] DESC OPTION (RECOMPILE);-- High CPU query
+-- ORDER BY [Avg Elapsed Time (ms)] DESC OPTION (RECOMPILE);-- Long Running query
+
+---------------------------------------------------------------------------------
+-- Query: Check if a Session is Encrypted (SQL Server 2016+)
+
+SELECT
+    session_id,
+    net_transport,
+    encrypt_option,
+    client_net_address,
+    local_net_address,
+    protocol_type
+FROM sys.dm_exec_connections
+WHERE session_id = <YourSessionID>;
