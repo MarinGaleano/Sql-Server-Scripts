@@ -1,0 +1,10 @@
+ vc consegue mudar o usuário que roda uma sessão e testar o acesso com um xpcmd
+ p login utilizado permanece ate o "proximo execute as"
+ 
+--Display current execution context.  SELECT SUSER_NAME(), USER_NAME();  
+-- Set the execution context to login1.   
+EXECUTE AS LOGIN = 'login1'; 
+
+-Verify the execution context is now login1.  SELECT SUSER_NAME(), USER_NAME();  
+ 
+EXEC xp_cmdshell 'net use z: \192.168.1.1\shareddrive /user:YOURUSERNAME PASSWORD'
