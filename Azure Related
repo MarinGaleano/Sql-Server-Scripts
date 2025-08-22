@@ -1,0 +1,92 @@
+---------------------------------------------------------------------------------
+--Azure Related
+
+-- Request corp account and ndw servers rdp privilege:
+https://confluencesw.t-mobile.com/display/STW/Azure+servers#Azureservers-NecessarystepstogetaccessonAzureServers
+
+
+-- Para login em banco Azure
+Utilizar o SSMS local, e logar no server, exemplo: PRDCDBWU2SQLMIDFDS02.04257ADBFBF9.DATABASE.WINDOWS.NET
+Utilizar autenticacao: Azure AD - Universal MFA  OU Microsoft Entra MFA
+Utilizar o login: ADM_JGalean8@T-Mobile.com
+Verificar o MFa no celular ou usar o ubikey
+
+
+---------------------------------------------------------------------------------
+--Portal azure
+
+portal.azure.com
+--hoje temos acesso somente a managed instances do SqlServer
+
+
+Hello Jose Maria,
+Your account CORP\JGalean8 has a password that expires in 60 day(s).
+Please use the following link while connected to the T-Mobile network to access the self-service 
+password reset tool: https://access.t-mobile.com/manage
+For questions, comments, or concerns, please contact CloudSecOps@T-Mobile.com.
+
+Email thread: Account Password Expiring in 60 day(s)! 
+e
+New Account
+---------------------------------------------------------------------------------
+once you have your CORP account setup, you will be able to RDP to the servers. please notice that username should be filled as this example:
+JGalean8@corporate.t-mobile.com or CORP\JGalean8
+
+CORP\JGalean8     
+PRDNDWWU2VMRP01.CORPORATE.T-MOBILE.COM
+stgndwwu2vmdwh0.corporate.t-mobile.com
+Marco18@XXXX-x2
+
+-----------------------------------
+How to get a Corp AD Account - A pre-requisite to access EDP Cloud CICD services
+https://confluencesw.t-mobile.com/display/ECSS/How+to+get+a+Corp+AD+Account+-+A+pre-requisite+to+access+EDP+Cloud+CICD+services
+
+-----------------------------------
+AZURE Servers access request 
+
+Azure request access to cloud self service portal:
+Packeges to request --> "Internal : Access : Users"
+
+https://confluencesw.t-mobile.com/display/STW/Azure+servers#Azureservers-Requestaccessonselfserviceaccessportal
+
+
+AZURE Servers access request 
+
+-----------------------------------
+The necessary groups for NDW RDP are:
+
+r_win_ndw_prd_rdp
+r_win_ndw_prd_admin
+
+--------------------------------------------------------------------------
+-- How to check connectivity to Azure SQL DB, Managed Instance, Azure Database for MySQL and PostgreSQL
+https://techcommunity.microsoft.com/blog/azuredbsupport/how-to-check-connectivity-to-azure-sql-db-managed-instance-azure-database-for-my/368915
+
+--------------------------------------------------------------------------
+https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/monitoring-sql-managed-instance-azure-monitor?view=azuresql
+
+--------------------------------------------------------------------------
+-- Azure connection strings
+
+https://www.connectionstrings.com/azure-sql-database/
+
+Server=tcp:myserver.database.windows.net,1433;Authentication=Active Directory Integrated;Database=mydatabase;
+
+--------------------------------------------------------------------------
+-- GitHub
+Email thread: You have been granted access to GitHub Copilot
+
+The owner of the business tmus has granted you access to GitHub Copilot for your JoseMaria-Galeano8_tmus user. 
+
+https://docs.github.com/en/copilot/using-github-copilot/getting-code-suggestions-in-your-ide-with-github-copilot?tool=vscode
+https://docs.github.com/en/copilot/using-github-copilot/getting-code-suggestions-in-your-ide-with-github-copilot?tool=visualstudio
+https://docs.github.com/en/copilot/using-github-copilot/getting-code-suggestions-in-your-ide-with-github-copilot?tool=jetbrains
+https://docs.github.com/en/copilot/using-github-copilot/getting-code-suggestions-in-your-ide-with-github-copilot?tool=vimneovim
+
+
+-- Email thread: T-Mobile - GitHub Copilot Onboarding
+ instructions for setting up Copilot on the IDE of your choice.
+ 
+-------------------------------------------------------------------------
+ 
+ 
