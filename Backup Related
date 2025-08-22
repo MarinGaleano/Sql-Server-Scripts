@@ -1,0 +1,606 @@
+---------------------------------------------------------------------------------
+-- report Diario de backups, email thread: SQL DB Daily Backup Report
+-- report diario de backups do TAD91, email thread: TAD91 - DataBase Backup Status Report
+
+---------------------------------------------------------------------------------
+-- Backup requests:
+https://tmus.service-now.com/nav_to.do?uri=%2Fcom.glideapp.servicecatalog_cat_item_guide_view.do%3Fv%3D1%26sysparm_initial%3Dtrue%26sysparm_guide%3D95cb65d41bd999109db9997a234bcb96%26sysparm_link_parent%3D93618d75db786450ca44ff00ba9619cc%26sysparm_catalog%3D7ea7fb82db51f740ef939f67f496197c%26sysparm_catalog_view%3Dcatalog_ist%26sysparm_view%3Dcatalogs_default
+
+-----------
+Nota para Backup request:	
+MN
+Mohammed Nizami (NMohamm18)
+Work notes•2024-07-02 14:11:53
+From: Nizami, Mohammed
+Sent: Tuesday, July 2, 2024 2:11 PM
+To: Galeano, Jose Maria <JoseMaria.Galeano8@T-Mobile.com>; TEQDatabaseEngineering-SQLServer <TEQDatabaseEngineering-SQLServer@T-Mobile.com>
+Cc: EnterpriseBackup <EnterpriseBackup@T-Mobile.com>
+Subject: REQ2850430 || SQL db backup configuration
+
+@Galeano, Jose Maria / @TEQDatabaseEngineering-SQLServer
+
+Please do not submit incomplete information for sql db backups. While submitting intake, please always fill out the below details for AAG/FCI.
+
+AAG:
+AAG server name =
+Associate node 1 =
+Associate node 2 =
+Associate node 3 =
+
+FCI: (if applicable)
+VNN name =
+Associate node 1 =
+Associate node 2 =
+Associate node 3 =
+
+
+Regards,
+Nizami
+Knowledge base @ Knowledge base
+Request intake @ Request intake
+Verify backup @ Verify backup
+Slackbot @ https://t-mo.slack.com/archives/C01888FS42D
+FAQ @ https://techportal.t-mobile.com/pages/viewpage.action?pageId=225579777
+------
+
+-- Exemplo de chamado para configurar backup do banco:
+https://tmus.service-now.com/nav_to.do?uri=%2Fsc_req_item.do%3Fsys_id%3D4c98bfa597a33110b697f1d11153af9c%26sysparm_record_target%3Dsc_req_item%26sysparm_record_row%3D1%26sysparm_record_rows%3D1%26sysparm_record_list%3Drequest%3D4098bfa597a33110b697f1d11153af9c%5EORDERBYDESCnumber
+REQ2828545
+
+-- exemplo de solicitacao de revisao de backup
+REQ2826450
+
+-- Knowledge base 
+https://nam02.safelinks.protection.outlook.com/?url=https%3A%2F%2Ftechportal.t-mobile.com%2Fdisplay%2FISB%2FInfrastructure%2BServices%2BBackups&data=05%7C01%7Cchris.a.partezana%40t-mobile.com%7Cb5a5129b4729427d154608dba80282dc%7Cbe0f980bdd994b19bd7bbc71a09b026c%7C0%7C0%7C638288500968640799%7CUnknown%7CTWFpbGZsb3d8eyJWIjoiMC4wLjAwMDAiLCJQIjoiV2luMzIiLCJBTiI6Ik1haWwiLCJXVCI6Mn0%3D%7C3000%7C%7C%7C&sdata=jQta9SjExXp0E5g8pHOe9zQvuznMMhFj7wkDHDzHoU0%3D&reserved=0
+
+-- Pagina de verify backup:
+https://app.powerbi.com/groups/me/reports/987688f6-85d5-400c-9a68-925398d3e20a/Repor[…]ctid=be0f980b-dd99-4b19-bd7b-bc71a09b026c&experience=power-bi
+
+-- Planilha Verify Backup
+https://nam02.safelinks.protection.outlook.com/?url=https%3A%2F%2Fapp.powerbi.com%2Fgroups%2Fme%2Freports%2F987688f6-85d5-400c-9a68-925398d3e20a%2FReportSection5cbda8588de2031b5e09%3Fctid%3Dbe0f980b-dd99-4b19-bd7b-bc71a09b026c%26experience%3Dpower-bi&data=05%7C02%7CJoseMaria.Galeano8%40T-Mobile.com%7C5b0c6ff1cc0e43feeaa008dc120901ac%7Cbe0f980bdd994b19bd7bbc71a09b026c%7C0%7C0%7C638405077120224644%7CUnknown%7CTWFpbGZsb3d8eyJWIjoiMC4wLjAwMDAiLCJQIjoiV2luMzIiLCJBTiI6Ik1haWwiLCJXVCI6Mn0%3D%7C3000%7C%7C%7C&sdata=6nncSpC75K%2Bos6A4Jr1jDlVE8XcdisxfUnvvrzkjeio%3D&reserved=0
+
+Cohesity Helios
+https://helios.cohesity.com/#/protections/sources/details/25602/objects?cid=5669553313383669&environment=kPhysical
+usuario cohesity JGalean8@t-mobile.com e seleciona SSO login
+
+Verificar em mu grupo de email Cohesity Reporting, e pegar o ultimo "SQL DB Daily Backup Report" para pegar a polotica e o cluster para consultar no helios
+
+Doc do Cohesity-helios
+https://techportal.t-mobile.com/pages/viewpage.action?spaceKey=ISb&title=Cohesity+Helios
+
+Cohesity team 
+onshore
+	Ramu Nagalla
+	Nizami Mohammed
+	Bill Mehojah
+	Chris Partezana 
+	Armando GonzalezRamirez
+	Chaitanya Uppalapati
+
+offshore 
+	Rakesh Mondal
+	Gopikrishna Telakapalli
+
+---------------------------------------------------------------------------------
+--Backup quota increase
+To have the quota increased, please create an intake ticket (SNOW REQ > RITM > TASK) via the following link:
+Request intake
+https://nam02.safelinks.protection.outlook.com/?url=https%3A%2F%2Ftmus.service-now.com%2Fnav_to.do%3Furi%3D%252Fcom.glideapp.servicecatalog_cat_item_guide_view.do%253Fv%253D1%2526sysparm_initial%253Dtrue%2526sysparm_guide%253D95cb65d41bd999109db9997a234bcb96%2526sysparm_link_parent%253D93618d75db786450ca44ff00ba9619cc%2526sysparm_catalog%253D7ea7fb82db51f740ef939f67f496197c%2526sysparm_catalog_view%253Dcatalog_ist%2526sysparm_view%253Dcatalogs_default&data=05%7C01%7Cchris.a.partezana%40t-mobile.com%7Cb5a5129b4729427d154608dba80282dc%7Cbe0f980bdd994b19bd7bbc71a09b026c%7C0%7C0%7C638288500968640799%7CUnknown%7CTWFpbGZsb3d8eyJWIjoiMC4wLjAwMDAiLCJQIjoiV2luMzIiLCJBTiI6Ik1haWwiLCJXVCI6Mn0%3D%7C3000%7C%7C%7C&sdata=Oqia9rNXsVS%2BIBOpcbl7qW4%2BEB%2Fe%2BL5tt%2BkWU5%2BIWaI%3D&reserved=0
+
+
+
+For quota increase, the EnterpriseBackup team needs to receive the following information from the requestor and placed in the intake ticket.
+1.	For an Oracle SBT view, review & delete the old backups, and use sbt_list command to delete any orphaned files
+2.	Verify that the data has been cleaned up and delete any old stale data.
+3.	Ensure you are not retaining any data beyond the retention period for the backup.
+4.	What is the Monthly growth trend, if known?
+5.	When will the capacity run out?
+6.	What is the full size of the DB (if applicable)?
+7.	What application does this share support?
+8.	Is the supported application frontline?
+9.	Is this production or non-production?
+
+
+
+
+---------------------------------------------------------------------------------
+--Listar os ultimos backups de todos os databases:
+SELECT sdb.Name AS DatabaseName,
+MAX(bus.backup_finish_date)
+FROM sys.sysdatabases sdb
+LEFT OUTER JOIN msdb.dbo.backupset bus ON bus.database_name = sdb.name
+WHERE TYPE='D'
+GROUP BY sdb.Name
+order by sdb.name
+
+ou 
+
+SELECT sdb.Name AS DatabaseName,
+COALESCE(CONVERT(VARCHAR(12), MAX(bus.backup_finish_date), 101),'-') AS LastBackUpTime
+FROM sys.sysdatabases sdb
+LEFT OUTER JOIN msdb.dbo.backupset bus ON bus.database_name = sdb.name
+GROUP BY sdb.Name
+order by 2
+
+	Backup type. Can be:
+
+D = Database
+I = Differential database
+L = Log
+F = File or filegroup
+G =Differential file
+P = Partial
+Q = Differential partial
+---------------------------------------------------------------------------------
+-- Listar o size dos backups
+select
+database_name
+,CAST(ROUND(((backup_size/1024)/1024),2) AS DECIMAL (10,2)) AS [Backup size in MB]
+FROM msdb.dbo.backupset
+where type = 'I'
+
+D = Database
+I = Differential database
+L = Log
+F = File or filegroup
+G =Differential file
+P = Partial
+Q = Differential partial
+
+---------------------------------------------------------------------------------
+-- list databases last transaction log backups time
+
+SELECT name AS 'Database Name', log_backup_time AS 'last log backup time' 
+FROM sys.databases AS s
+CROSS APPLY sys.dm_db_log_stats(s.database_id); 
+
+---------------------------------------------------------------------------------
+-- Monitor Restore Progress & Throughput in GiB/s (precisa testar)
+📝 Notes:
+r.percent_complete: Shows restore progress.
+
+r.total_elapsed_time: Elapsed time in milliseconds.
+
+r.estimated_completion_time: Estimated time remaining in milliseconds.
+
+throughput_GiB_per_sec: Derived throughput in Gibibytes per second (GiB/s).
+
+Assumes estimated_completion_time approximates total bytes involved.
+
+If known, you can hardcode the database backup size for better accuracy.
+
+
+SELECT
+    r.session_id,
+    r.command,
+    r.percent_complete,
+    r.start_time,
+    DATEDIFF(SECOND, r.start_time, GETDATE()) AS elapsed_seconds,
+    CAST(r.percent_complete AS DECIMAL(5,2)) AS percent_done,
+    
+    -- Estimated remaining time (only if percent_complete > 0)
+    CASE 
+        WHEN r.percent_complete > 0 THEN 
+            DATEADD(SECOND, 
+                DATEDIFF(SECOND, r.start_time, GETDATE()) * (100.0 - r.percent_complete) / r.percent_complete, 
+                GETDATE())
+        ELSE NULL 
+    END AS estimated_completion_time,
+
+    -- Calculate throughput (data processed in bytes divided by elapsed time)
+    -- total_elapsed_time is in ms, convert to seconds
+    -- estimated_bytes is the total size of the restore
+    CASE 
+        WHEN r.percent_complete > 0 AND r.total_elapsed_time > 0 THEN 
+            CAST(((r.percent_complete / 100.0) * r.estimated_completion_time * 1024.0 * 1024.0 * 1024.0) 
+                / (r.total_elapsed_time / 1000.0) / POWER(1024.0, 3) AS DECIMAL(10,3)) 
+        ELSE NULL 
+    END AS throughput_GiB_per_sec
+
+FROM sys.dm_exec_requests r
+WHERE r.command IN ('RESTORE DATABASE', 'RESTORE LOG');
+
+--Optional: Using Backup File Size (If Known)
+If you know the total size of the database backup, say 200 GB, you can plug it in directly:
+
+-- Assume 200 GiB backup size
+DECLARE @TotalSizeBytes FLOAT = 200 * 1024.0 * 1024.0 * 1024.0;
+
+SELECT
+    r.session_id,
+    r.percent_complete,
+    DATEDIFF(SECOND, r.start_time, GETDATE()) AS elapsed_seconds,
+    CAST((@TotalSizeBytes * (r.percent_complete / 100.0)) / NULLIF(DATEDIFF(SECOND, r.start_time, GETDATE()), 0) / POWER(1024.0, 3) AS DECIMAL(10,3)) 
+        AS throughput_GiB_per_sec
+FROM sys.dm_exec_requests r
+WHERE r.command IN ('RESTORE DATABASE', 'RESTORE LOG');
+
+---------------------------------------------------------------------------------
+--  List Backup Sizes (Last 7 Days)
+
+
+
+-- Replace 'YourDatabaseName' with your actual database name
+DECLARE @DatabaseName SYSNAME = 'YourDatabaseName';
+
+SELECT
+    b.database_name,
+    CASE b.type
+        WHEN 'D' THEN 'Full'
+        WHEN 'I' THEN 'Differential'
+        WHEN 'L' THEN 'Log'
+        ELSE b.type
+    END AS backup_type,
+    b.backup_start_date,
+    b.backup_finish_date,
+    CAST(b.backup_size / 1024.0 / 1024.0 / 1024.0 AS DECIMAL(10, 2)) AS backup_size_GB,
+    b.physical_device_name
+FROM msdb.dbo.backupset b
+JOIN msdb.dbo.backupmediafamily mf
+    ON b.media_set_id = mf.media_set_id
+WHERE
+    b.database_name = @DatabaseName
+    AND b.backup_start_date >= DATEADD(DAY, -7, GETDATE())
+ORDER BY
+    b.type,
+    b.backup_finish_date DESC;
+
+
+
+
+---------------------------------------------------------------------------------
+
+
+-- efetuar Backup dos databases
+EXECUTE dbo.DatabaseBackup
+@Databases = 'ALL_DATABASES',
+@Directory = 'H:\',
+@BackupType = 'FULL',
+@Verify = 'Y',
+@Compress = 'Y',
+@DatabasesInParallel = 'Y',
+@NumberOfFiles = 6,
+@CopyOnly = 'Y' 
+---------------------------------------------------------------------------------
+-- See backup operations
+select * from sys.dm_operation_status
+
+-- Getting SQL Backup or SQL Restore Percentage Complete Using DMVs
+SELECT 
+   session_id as SPID, command, a.text AS Query, start_time, percent_complete,
+   dateadd(second,estimated_completion_time/1000, getdate()) as estimated_completion_time
+FROM sys.dm_exec_requests r 
+   CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) a 
+WHERE r.command in ('BACKUP DATABASE','RESTORE DATABASE','BACKUP LOG') 
+
+-- ou
+
+SELECT
+er.session_id
+,er.start_time
+,er.status
+,er.command
+,er.percent_complete
+,er.estimated_completion_time /60/1000 as estimate_completion_minutes
+,DATEADD(n,(estimated_completion_time /60/1000),GETDATE()) as estimated_completion_time
+,SUBSTRING(st.text, er.statement_start_offset / 2,
+(CASE WHEN er.statement_end_offset = -1 THEN LEN(CONVERT(nvarchar(max), st.text)) * 2
+ELSE er.statement_end_offset END - er.statement_start_offset) / 2) AS query_text
+,es.login_name
+,es.host_name
+,es.program_name
+,er.wait_type
+,er.wait_time
+,er.last_wait_type
+,er.wait_resource
+FROM sys.dm_exec_connections ec
+LEFT OUTER JOIN sys.dm_exec_sessions es ON ec.session_id = es.session_id
+LEFT OUTER JOIN sys.dm_exec_requests er ON ec.connection_id = er.connection_id
+OUTER APPLY sys.dm_exec_sql_text(sql_handle) st
+OUTER APPLY sys.dm_exec_query_plan(plan_handle) ph
+WHERE er.command = 'BACKUP DATABASE' OR er.command = 'BACKUP LOG' OR er.command = 'RESTORE DATABASE' OR er.command = 'RESTORE LOG' OR er.command = 'RESTORE HEADERONLY'
+ORDER BY es.program_name DESC;
+----------------------------------------------------------------------------------
+
+
+--List backups for all databases 
+
+SELECT 
+   CONVERT(CHAR(100), SERVERPROPERTY('Servername')) AS Server, 
+   msdb.dbo.backupset.database_name, 
+   msdb.dbo.backupset.backup_start_date, 
+   msdb.dbo.backupset.backup_finish_date, 
+   msdb.dbo.backupset.expiration_date, 
+   CASE msdb..backupset.type 
+      WHEN 'D' THEN 'Database' 
+      WHEN 'L' THEN 'Log' 
+      END AS backup_type, 
+   msdb.dbo.backupset.backup_size, 
+   msdb.dbo.backupmediafamily.logical_device_name, 
+   msdb.dbo.backupmediafamily.physical_device_name, 
+   msdb.dbo.backupset.name AS backupset_name, 
+   msdb.dbo.backupset.description 
+FROM 
+   msdb.dbo.backupmediafamily 
+   INNER JOIN msdb.dbo.backupset ON msdb.dbo.backupmediafamily.media_set_id = msdb.dbo.backupset.media_set_id 
+WHERE 
+   (CONVERT(datetime, msdb.dbo.backupset.backup_start_date, 102) >= GETDATE() - 1) 
+ORDER BY 
+   msdb.dbo.backupset.database_name, 
+   msdb.dbo.backupset.backup_finish_date 
+   
+---------------------------------------------------------------------------------
+-- Lista database backup e o device backup, se é cohesithy ou local:
+-- utilizar o filtro bks.type e o getdate se necessário.
+-- Ex de bck nativo:   \\10.135.210.157\px0103_cobk_prd_sql_tad91\prdwcldes01$AGPRD_CDES\TAD91\LOG\prdwcldes01$AGPRD_CDES_TAD91_LOG_20240113_110000_1.trn
+-- Ex de bck no cohesity (GUID):  {37F43C6F-FF23-4E88-9C23-AC4388E6606B}3
+
+SELECT
+    [database_name]
+    , backup_finish_date
+    ,   CASE [bks].[type]
+            WHEN 'D' THEN 'Database'
+            WHEN 'F' THEN 'File'
+            WHEN 'I' THEN 'Differential'
+            WHEN 'L' THEN 'Log'
+            ELSE [bks].[type]
+        END AS [Backup_Type]
+    , physical_device_name as [Backup_FQDN]
+    , Cast(Datediff(second, bks.backup_start_date,bks.backup_finish_date) AS VARCHAR(10)) as [Backup_Elapsed_Time_Seconds]
+    , (backup_size/1024/1024) as [Backup_Size_MB]
+    , is_compressed
+    , CONVERT(NUMERIC(12,2),compressed_backup_size/1024/1024) as [Compressed_Backup_Size_MB]
+    , is_copy_only
+    , [user_name] as [Back_up_by]
+    , [bkms].[name] as [MediaSetName]
+    , expiration_date
+    ,   CASE [bks].[compatibility_level]
+            WHEN 60 THEN '60 (SQL Server 6.0)'
+            WHEN 65 THEN '65 (SQL Server 6.5)'
+            WHEN 70 THEN '70 (SQL Server 7.0)'
+            WHEN 80 THEN '80 (SQL Server 2000)'
+            WHEN 90 THEN '90 (SQL Server 2005)'
+            WHEN 100 THEN '100 (SQL Server 2008 | R2)'
+            WHEN 110 THEN '110 (SQL Server 2012)'
+            WHEN 120 THEN '120 (SQL Server 2014)'
+            WHEN 130 THEN '130 (SQL Server 2016)'
+            WHEN 140 THEN '140 (SQL Server 2017)'
+            WHEN 150 THEN '150 (SQL Server 2019)'
+        END as [Compatibility_Level]
+    , [bks].[collation_name]
+    , server_name
+    , backup_start_date
+    , [backup_set_id]
+    , bks.media_set_id
+    , bks.[name]
+    , bks.[description]
+FROM msdb.dbo.backupset as [bks]
+INNER JOIN msdb.dbo.backupmediaset as [bkms]
+    ON bks.media_set_id = bkms.media_set_id
+INNER JOIN msdb.dbo.backupmediafamily as [bkmdf]
+    ON bks.media_set_id = bkmdf.media_set_id
+where database_name NOT IN ('model','msdb','master','tempdb')
+and [backup_finish_date] >= (GETDATE() - 2) 
+--and bks.type='D'
+ORDER BY
+    [database_name], Backup_Type, [backup_finish_date] desc 	
+
+---------------------------------------------------------------------------------
+-- script to get the estimated amount time which SQL Server is going to take to complete database Backup or Restore
+
+-- Due to the fact this script uses DMV’s, will only work on SQL Server 2005 and higher
+
+SELECT
+session_id,
+start_time,
+status,
+command,
+percent_complete,
+estimated_completion_time,
+estimated_completion_time /60/1000 as estimate_completion_minutes,
+--(select convert(varchar(5),getdate(),8)),
+DATEADD(n,(estimated_completion_time /60/1000),GETDATE()) as estimated_completion_time
+FROM    sys.dm_exec_requests where command = 'BACKUP DATABASE' OR command = 'RESTORE DATABASE'
+
+-- ou
+
+SELECT 
+dmr.session_id,
+dmr.command,
+CONVERT(NUMERIC(6,2),dmr.percent_complete)AS [Percent Complete],
+CONVERT(VARCHAR(20),DATEADD(ms,dmr.estimated_completion_time,GetDate()),20) AS [ETA Completion Time],
+CONVERT(NUMERIC(10,2),dmr.total_elapsed_time/1000.0/60.0) AS [Elapsed Min],
+CONVERT(NUMERIC(10,2),dmr.estimated_completion_time/1000.0/60.0) AS [ETA Min],
+CONVERT(NUMERIC(10,2),dmr.estimated_completion_time/1000.0/60.0/60.0) AS [ETA Hours]
+,CONVERT(VARCHAR(1000),(SELECT SUBSTRING(text,dmr.statement_start_offset/2,
+   CASE WHEN dmr.statement_end_offset = -1 THEN 1000 
+   ELSE (dmr.statement_end_offset-dmr.statement_start_offset)/2 END) 
+FROM sys.dm_exec_sql_text(sql_handle)
+)
+) [sqltxt]
+FROM sys.dm_exec_requests dmr WHERE command IN ('RESTORE DATABASE','BACKUP DATABASE')
+---------------------------------------------------------------------------------
+-- Este ilustra o uso do log em todos os databases - depois user o DBCC Opentran
+
+SELECT name
+, db.log_reuse_wait_desc
+, ls.cntr_value  AS size_kb
+, lu.cntr_value AS used_kb
+, CAST(lu.cntr_value AS FLOAT) / CAST(ls.cntr_value AS FLOAT)
+AS used_percent
+, CASE WHEN CAST(lu.cntr_value AS FLOAT) / CAST(ls.cntr_value AS FLOAT) > .5 THEN
+CASE
+/* tempdb special monitoring */
+WHEN db.name = 'tempdb'
+AND log_reuse_wait_desc NOT IN ('CHECKPOINT', 'NOTHING') THEN 'WARNING'
+/* all other databases, monitor foor the 50% fill case */
+WHEN db.name <> 'tempdb' THEN 'WARNING'
+ELSE 'OK'
+END
+ELSE 'OK' END
+AS log_status
+FROM sys.databases db
+JOIN sys.dm_os_performance_counters lu
+ON db.name = lu.instance_name
+JOIN sys.dm_os_performance_counters ls
+ON db.name = ls.instance_name
+WHERE lu.counter_name LIKE  'Log File(s) Used Size (KB)%'
+AND ls.counter_name LIKE 'Log File(s) Size (KB)%'
+
+---------------------------------------------------------------------------------
+Query backup failed/success
+
+EXEC sp_readerrorlog 0, 1, 'BACKUP failed'; -- current
+EXEC sp_readerrorlog 1, 1, 'BACKUP failed'; -- .1 (previous)
+EXEC sp_readerrorlog 2, 1, 'BACKUP failed'; -- .2 (the one before that)
+
+---
+DECLARE @path nvarchar(260);
+
+SELECT 
+   @path = REVERSE(SUBSTRING(REVERSE([path]), 
+   CHARINDEX(CHAR(92), REVERSE([path])), 260)) + N'log.trc'
+FROM    sys.traces
+WHERE   is_default = 1;
+
+SELECT dt.DatabaseName, dt.StartTime, bs.backup_start_date, bs.backup_finish_date, 
+  [Status] = CASE WHEN bs.backup_start_date IS NULL 
+    THEN 'Probably failed'
+    ELSE 'Seems like success'
+  END
+FROM sys.fn_trace_gettable(@path, DEFAULT) AS dt
+LEFT OUTER JOIN msdb.dbo.backupset AS bs
+ON dt.DatabaseName = bs.database_name
+AND ABS(DATEDIFF(SECOND, dt.StartTime, bs.backup_start_date)) < 8
+WHERE dt.EventClass = 115 -- backup/restore events
+AND UPPER(CONVERT(nvarchar(max),dt.TextData)) LIKE N'BACKUP%DATABASE%'
+--AND dt.DatabaseName = N'db_name' -- to filter to a single database
+--AND bs.database_name = N'db_name'
+ORDER BY dt.DatabaseName, dt.StartTime;
+
+
+---------------------------------------------------------------------------------
+--Para o CFAM
+
+select DB_ID('CFAM_DATABASE_NTX')
+ 
+select * from sys.dm_db_log_info(8) --trocar pelo id da base de dados
+ 
+select file_id, vlf_active, COUNT(*)
+from sys.dm_db_log_info(8) --trocar pelo id da base de dados
+ 
+group by file_id, vlf_active
+---------------------------------------------------------------------------------
+--Verificar progresso do backup
+SELECT session_id as SPID, command, a.text AS Query, start_time, percent_complete, 
+dateadd(second,estimated_completion_time/1000, getdate()) as estimated_completion_time 
+FROM sys.dm_exec_requests r CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) a 
+WHERE r.command in ('BACKUP DATABASE','RESTORE DATABASE', 'RESTORE HEADERON', 'RESTORE LOG')
+
+---------------------------------------------------------------------------------
+-- Restoring AG databases
+1- Remover a base de dados do  AG
+2- Restaura a base de dados no principal, mantem ela em status NORECOVERY
+3- Restaura a base de dados nos AG secunarios
+4- Adiciona no AG como Join only
+OBs: se nao funcionar, faz bck no primario do db e de logs e restaura nos seunarios, depois tenta adicionar d novo no AG
+-- Ex de resstore:
+RESTORE DATABASE [Alarms_NE]  FROM  DISK = N'H:\CHG012546137\PSQLALCNE\Alarms_NE.bak' 
+WITH  FILE = 1, NORECOVERY, NOUNLOAD,  REPLACE,  STATS = 5
+GO
+--Restore com renaming/moving files
+RESTORE DATABASE [Alarms_NE]  FROM  DISK = N'H:\CHG012546137\PSQLALCNE\Alarms_NE.bak' 
+WITH  FILE = 1,  
+MOVE N'Alarms_NE' TO N'G:\MSSQL13.PRD\MSSQL\DATA\Alarms_NE_NE.mdf', 
+MOVE N'Alarms_NE_log' TO N'I:\MSSQL13.PRD\MSSQL\DATA\Alarms_NE_NE_log.ldf',  
+NORECOVERY, NOUNLOAD,  REPLACE,  STATS = 5
+GO
+
+---------------------------------------------------------------------------------
+--Restoring tables from recoverd database:
+select * into NSN_LTE.dbo.NSN_LTE_CELL_PAGING from NEW_NSN_LTE.dbo.NSN_LTE_CELL_PAGING
+select * into NSN_LTE.dbo.NSN_LTE_CELL_PDCCH_CONGESTION from NEW_NSN_LTE.dbo.NSN_LTE_CELL_PDCCH_CONGESTION
+select * into NSN_LTE.dbo.NSN_LTE_CELL_USER_BH_REPORT from NEW_NSN_LTE.dbo.NSN_LTE_CELL_USER_BH_REPORT
+select * into NSN_LTE.dbo.NSN_LTE_eNodeB_PAGING from NEW_NSN_LTE.dbo.NSN_LTE_eNodeB_PAGING
+select * into NSN_LTE.dbo.NSN_LTE_LICENSES_CELL from NEW_NSN_LTE.dbo.NSN_LTE_LICENSES_CELL
+select * into NSN_LTE.dbo.NSN_LTE_LICENSES_eNodeB from NEW_NSN_LTE.dbo.NSN_LTE_LICENSES_eNodeB
+select * into NSN_LTE.dbo.NSN_LTE_TOP_OFFENDERS_SUMMARY_UL from NEW_NSN_LTE.dbo.NSN_LTE_TOP_OFFENDERS_SUMMARY_UL
+select * into NSN_LTE.dbo.NSN_VOLTE_CELL_BH from NEW_NSN_LTE.dbo.NSN_VOLTE_CELL_BH
+
+--Also check for existing index or keys:
+sp_helpindex 'table_name'
+If needed select the table index and generate script form ssms.
+
+-----------------------------------------------------------------------------------
+--Backup using Cohesity 
+
+1-  Identificar o nome do cluster e a politica de backup
+	- Para isso buscar no email o seguinte thread: "Cohesity: Daily SQLDB Run Report" , abir a planilha anexa, buscar o nome do servidor e copiar o jobname que é o nome da politica ex:
+	ClusterName	JobName								ClientName
+	PXCOBKP0103	PX0103_1800_PRD_SQLDB_LOG_copy_only	PPOLWANPS0000C
+	
+2- Entrar no cohesithy
+	Helios can be accessed from URL https://helios.cohesity.com/  using web browser.
+	Click on 'Sign in with SSO'
+	provide your T-mobile Email ID
+	ex:- yourname@t-mobile.com
+   
+3- Selecionar Protection e Data Protection
+
+4- Selecionar o cluster ( do item 1) 
+
+5- Em data Protection Selecionar PROTECTION
+
+6- Para criar uma politica nova vc pode ir em PROTECT no canto superior direito, mas aqui vamos apenas rodar uma politica já existente ou rodar a politica 
+para um unico banco selecionado.
+
+7- Usando a lupa dentro do quadro maior, ao lado do drop down "status", colocar o nome da app por ex "gcoi" ou ir ao item 8 e usar o nome da politica
+
+8- Colar o nome da politica (item 1) e aguardar o refresh automatico da tela
+
+9- No lado direito, superior, nos 3 pontinhos, selecionar "Run now" 
+
+10- Selecionao o backup type, pode ser FULL, depois selecionar "Backup only selected Objects in protection group"
+
+11- Selecionar o database desejado e "Run Now"
+
+------------------------------------------------------------------------------------
+-- Parallel backup by Bruno using compression
+
+BACKUP DATABASE [DICMDB03] TO  
+DISK = N'H:\DBA\SCTASK10570932\DICMDB03_1.bak',  
+DISK = N'H:\DBA\SCTASK10570932\DICMDB03_2.bak',  
+DISK = N'H:\DBA\SCTASK10570932\DICMDB03_3.bak',
+DISK = N'H:\DBA\SCTASK10570932\DICMDB03_4.bak',  
+DISK = N'H:\DBA\SCTASK10570932\DICMDB03_5.bak',  
+DISK = N'H:\DBA\SCTASK10570932\DICMDB03_6.bak'
+WITH NOFORMAT, NOINIT,  
+NAME = N'DICMDB03-Full Database Backup', SKIP, NOREWIND,copy_only, NOUNLOAD, COMPRESSION, STATS = 1
+GO
+
+--------------------------------------------------------------------------------------
+-- Query: List Last Database Restores (SQL Server 2019)
+
+SELECT
+    rh.destination_database_name AS database_name,
+    rh.restore_date,
+    rh.user_name,
+    CASE rh.restore_type
+        WHEN 'D' THEN 'Database'
+        WHEN 'I' THEN 'Differential'
+        WHEN 'L' THEN 'Log'
+        WHEN 'F' THEN 'File'
+        WHEN 'G' THEN 'Filegroup'
+        WHEN 'V' THEN 'Verifyonly'
+        ELSE rh.restore_type
+    END AS restore_type,
+    bmf.physical_device_name AS backup_file,
+    rh.replace,
+    rh.recovery,
+    rh.restart
+FROM msdb.dbo.restorehistory AS rh
+LEFT JOIN msdb.dbo.backupset AS bs
+    ON rh.backup_set_id = bs.backup_set_id
+LEFT JOIN msdb.dbo.backupmediafamily AS bmf
+    ON bs.media_set_id = bmf.media_set_id
+ORDER BY rh.restore_date DESC;
