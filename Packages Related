@@ -1,0 +1,5 @@
+-- Listar as packages do servidor
+-- Abrir o SSMS como administrator para locar no Integration services
+
+select * from msdb.dbo.sysssispackages
+order by name
