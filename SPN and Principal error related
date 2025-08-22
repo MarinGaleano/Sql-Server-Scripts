@@ -1,0 +1,276 @@
+
+-- SQL Connectivity Settings Check (SQLCHECK)
+
+https://github.com/microsoft/CSS_SQL_Networking_Tools/wiki/SQLCHECK
+
+Download feito em: C:\Users\JGalean8\OneDrive - T-Mobile USA\Documents\TMO\SqlServer\Scripts\SQLCHECK.zip
+
+-- Check recomended SPNs by ChatGPT (Bruno and Marin ;-))
+Function Get-SqlServerSPNs {
+    param(
+        [string]$SqlServerHostName,  # SQL Server Hostname or FQDN
+        [int]$SqlServerPort = 1433   # SQL Server Port, default is 1433
+    )
+
+    $FQDN = [System.Net.Dns]::GetHostByName($SqlServerHostName).HostName
+
+    # Get the current SPNs for the SQL Server hostname
+    Write-Host "Checking SPNs for SQL Server: $SqlServerHostName"
+    
+    # Run 'setspn' command to get all SPNs for the machine
+    $spns = & setspn -L $SqlServerHostName 2>&1
+    
+    if ($spns -contains 'ERROR') {
+        Write-Host "Error fetching SPNs. Please ensure the SQL Server hostname is correct."
+        return
+    }
+
+    Write-Host "List of SPNs for $SqlServerHostName"
+    $spns
+    Write-Host ""
+    
+    # Check for the recommended SPN patterns (MSSQLSvc)
+    #$recommendedSPNs = @(
+    #    "MSSQLSvc/" + $SqlServerHostName + ":" + $SqlServerPort,
+    #    "MSSQLSvc/" + $SqlServerHostName + "." + $FQDN + ":" + $SqlServerPort,
+    #    "MSSQLSvc/$SqlServerHostName",
+    #    "MSSQLSvc/" + $SqlServerHostName + "." + $FQDN  
+    #)
+
+    $recommendedSPNs = @(
+    "MSSQLSvc/$($SqlServerHostName):$SqlServerPort",
+    "MSSQLSvc/$($FQDN):$SqlServerPort",
+    "MSSQLSvc/$($SqlServerHostName)",
+    "MSSQLSvc/$($FQDN)"
+)
+
+    Write-Host "Recommended SPNs for $SqlServerHostName (port $SqlServerPort):"
+    $recommendedSPNs
+
+    #$recommendedSPNs | ForEach-Object { Write-Output $_ }
+
+    Write-Host "SPNs recomendados:"
+    foreach ($spn in $recommendedSPNs) {
+    Write-Host " - $spn"
+    }
+
+Write-Host ""
+    
+    Write-Host ""
+    
+    # Compare registered SPNs with recommended SPNs
+    $missingSPNs = $recommendedSPNs | Where-Object { $_ -notin $spns }
+    
+    if ($missingSPNs.Count -gt 0) {
+        Write-Host "The following recommended SPNs are missing:"
+        $missingSPNs
+    } else {
+        Write-Host "All recommended SPNs are registered."
+    }
+}
+
+# Example: Use the function to check SPNs for your SQL Server (modify the hostname and port as needed)
+$SqlServerHostName = "PPOLWVARS00074"   # SQL Server Hostname or FQDN
+$SqlServerPort = 50131                      # SQL Server Port (default is 1433 for default instance)
+
+# Run the function to check SPNs
+Get-SqlServerSPNs -SqlServerHostName $SqlServerHostName -SqlServerPort $SqlServerPort
+
+
+
+----------------------------------------------------------------------------
+Para erros de sspn, verificar se a password do servico foi rotacionada no cyberark
+Pegar a conta to servico com esta query, entrar no cyberarck, buscar pela conta e verificar as atividades da cta:
+SELECT
+          CASE
+           WHEN SSPs2.name IS NULL THEN 'Public'
+           ELSE SSPs2.name
+          END AS 'Role Name',
+          SSPs.name AS 'Login Name',
+          Case SSPs.is_disabled
+           When 0 Then '0 – Enable'
+           When 1 Then '1 – Disable'
+          End AS 'Login Status',
+          SSPs.type_desc AS 'Login Type'
+FROM sys.server_principals SSPs
+  LEFT JOIN sys.server_role_members SSRM ON SSPs.principal_id  = SSRM.member_principal_id
+  LEFT JOIN sys.server_principals SSPs2 ON SSRM.role_principal_id = SSPs2.principal_id
+  WHERE SSPs2.name IS NOT NULL
+	OR SSPs.type_desc <> 'CERTIFICATE_MAPPED_LOGIN'
+	AND SSPs.type_desc <> 'SERVER_ROLE'
+	AND SSPs.name NOT LIKE 'NT %'
+	AND SSPs2.name IS NULL
+ORDER BY SSPs2.name DESC, SSPs.name
+
+
+Request to Modify an Existing Domain Service Account | TMUS (service-now.com)
+https://tmus.service-now.com/nav_to.do?uri=%2Fcom.glideapp.servicecatalog_cat_item_view.do%3Fv%3D1%26sysparm_id%3D6c8502c5dbd850100d36a4fdd396193f%26sysparm_link_parent%3D340db37d6ffb7280fd9277f16a3ee4d2%26sysparm_catalog%3De0d08b13c3330100c8b837659bba8fb4%26sysparm_catalog_view%3Dcatalog_default%26sysparm_view%3Dcatalogs_default
+
+
+Introducao a SPN
+https://learn.microsoft.com/en-us/sql/reporting-services/report-server/register-a-service-principal-name-spn-for-a-report-server?view=sql-server-ver16
+
+Exemplo de solucao:
+https://www.linkedin.com/pulse/troubleshooting-service-principal-names-spns-sql-server-akella-gdevf/
+
+Exemplo de snow REQ para criar SPN:
+REQ2841086
+
+Para erros:
+
+Error connecting to [DTTNWCFDD00033\DEV,1433]: The target principal name is incorrect. Cannot generate SSPI context.
+
+O erro está relacionado a autenticação kerberos, SPN e AD.
+É preciso verificar e se nao existir, cadastrar o nome do principal, neste caso o servidor e o nome do usuário do servico do sqlserver.
+Na TMO tanto o host como o usuário de servico precisam estar no SPN com e sem o dominio e tbm precisa ter as portas
+
+-----------------------------
+spn para qdo o serviço está usando conta local do servidor, se for cta de ad, substituir pela cta de AD aqui removendo o $ no final "gsm1900\LPOLWTKCA00021$"
+
+para listar os spns do servidor
+
+setspn -L hostname
+
+setspn -L GSM1900\gMSA_PSQL_VARS$ (sql server service account)
+
+para criar SPN
+
+setspn -s "MSSQLSvc/PPOLWVARS00074.gsm1900.org:50131" 	"GSM1900\gMSA_PSQL_VARS$"
+setspn -s "MSSQLSvc/PPOLWVARS00074.gsm1900.org:PRD" 	"GSM1900\gMSA_PSQL_VARS$"
+setspn -s "MSSQLSvc/PPOLWVARS00074:50131" 		"GSM1900\gMSA_PSQL_VARS$"            
+setspn -s "MSSQLSvc/PPOLWVARS00074.gsm1900.org:61459" 	"GSM1900\gMSA_PSQL_VARS$"
+setspn -s "MSSQLSvc/PPOLWVARS00074:61459" 		"GSM1900\gMSA_PSQL_VARS$"
+setspn -s "MSSQLSvc/PPOLWVARS00074:PRD" 		"GSM1900\gMSA_PSQL_VARS$"
+
+
+
+RITM02068532 ou SCTASK10599095
+
+To check after creation:
+setspn -L "gsm1900\LPOLWTKCA00021$"
+Registered ServicePrincipalNames for CN=lpolwtkca00021,OU=WINDOWS,OU=COMPUTERS,OU=ODIN,DC=gsm1900,DC=org:
+        MSSQLSvc/LPOLWTKCA00021:PEL
+        MSSQLSvc/lpolwtkca00021.gsm1900.org:PEL
+        MSSQLSvc/LPOLWTKCA00021:50052
+        MSSQLSvc/lpolwtkca00021.gsm1900.org:50052
+
+			
+-----------------------------
+https://learn.microsoft.com/en-us/sql/relational-databases/native-client/features/service-principal-name-spn-support-in-client-connections?view=sql-server-ver15
+
+Syntax	Description
+MSSQLSvc/fqdn	The provider-generated, default SPN for a default instance when a protocol other than TCP is used.
+
+fqdn is a fully-qualified domain name.
+MSSQLSvc/fqdn:port	The provider-generated, default SPN when TCP is used.
+
+port is a TCP port number.
+MSSQLSvc/fqdn:InstanceName	The provider-generated, default SPN for a named instance when a protocol other than TCP is used.
+
+InstanceName is a SQL Server instance name.
+HOST/fqdn
+
+HOST/MachineName	The SPN that maps to built-in computer accounts that are automatically registered by Windows.
+			
+------------------------------
+https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/register-a-service-principal-name-for-kerberos-connections?view=sql-server-ver16
+
+SPN formats
+The SPN format supports Kerberos authentication on TCP/IP, named pipes, and shared memory. The supported SPN formats for named and default instances are as follows.
+
+Named instance
+MSSQLSvc/<FQDN>:[<port> | <instancename>], where:
+
+MSSQLSvc is the service that is being registered.
+<FQDN> is the fully qualified domain name of the server.
+<port> is the TCP port number.
+<instancename> is the name of the SQL Server instance.
+Default instance
+MSSQLSvc/<FQDN>:<port> | MSSQLSvc/<FQDN>, where:
+
+MSSQLSvc is the service that is being registered.
+<FQDN> is the fully qualified domain name of the server.
+<port> is the TCP port number.
+
+-------------------------------
+Como registrar a conta de servico do sqlserver:
+
+https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/register-a-service-principal-name-for-kerberos-connections?view=sql-server-ver16
+
+	Manual SPN registration
+	For a named instance, use
+		setspn -S MSSQLSvc/myhost.redmond.microsoft.com:instancename redmond\accountnam
+	For port number
+		setspn -S MSSQLSvc/myhost.redmond.microsoft.com:Port# redmond\accountname
+
+-----------------------------------------------------------------
+  
+---------------------------------------------------------------------------------------------------------------------
+--Testar credencial do sqlserver
+
+Start-Process -FilePath cmd.exe /c -Credential (Get-Credential -UserName $username -Message 'Test Credential')
+
+---------------------------------------------------------------------------------------------------------------------
+-- Exemplo e task para add SPN:
+SCTASK10574782
+Email para: @Directory and Security Services,
+---------------------------------------------------------------------------------------------------------------------
+-- Verificar os spns recomendados
+https://github.com/microsoft/CSS_SQL_Networking_Tools/wiki/SQLCHECK
+
+
+---------------------------------------------------------------------------------------------------------------------
+-- Verificar os spns recomendados, no powershell ISE
+
+# Function to check SPNs registered for the SQL Server machine
+Function Get-SqlServerSPNs {
+    param(
+        [string]$SqlServerHostName,  # SQL Server Hostname or FQDN
+        [int]$SqlServerPort = 1433   # SQL Server Port, default is 1433
+    )
+
+    # Get the current SPNs for the SQL Server hostname
+    Write-Host "Checking SPNs for SQL Server: $SqlServerHostName"
+    
+    # Run 'setspn' command to get all SPNs for the machine
+    $spns = & setspn -L $SqlServerHostName 2>&1
+    
+    if ($spns -contains 'ERROR') {
+        Write-Host "Error fetching SPNs. Please ensure the SQL Server hostname is correct."
+        return
+    }
+
+    Write-Host "List of SPNs for $SqlServerHostName:"
+    $spns
+    Write-Host ""
+    
+    # Check for the recommended SPN patterns (MSSQLSvc)
+    $recommendedSPNs = @(
+        "MSSQLSvc/$SqlServerHostName:$SqlServerPort",
+        "MSSQLSvc/$SqlServerHostName.fqdn:$SqlServerPort",
+        "MSSQLSvc/$SqlServerHostName",
+        "MSSQLSvc/$SqlServerHostName.fqdn"
+    )
+
+    Write-Host "Recommended SPNs for $SqlServerHostName (port $SqlServerPort):"
+    $recommendedSPNs
+    
+    Write-Host ""
+    
+    # Compare registered SPNs with recommended SPNs
+    $missingSPNs = $recommendedSPNs | Where-Object { $_ -notin $spns }
+    
+    if ($missingSPNs.Count -gt 0) {
+        Write-Host "The following recommended SPNs are missing:"
+        $missingSPNs
+    } else {
+        Write-Host "All recommended SPNs are registered."
+    }
+}
+
+# Example: Use the function to check SPNs for your SQL Server (modify the hostname and port as needed)
+$SqlServerHostName = "YourSqlServerName"   # SQL Server Hostname or FQDN
+$SqlServerPort = 1433                      # SQL Server Port (default is 1433 for default instance)
+
+# Run the function to check SPNs
+Get-SqlServerSPNs -SqlServerHostName $SqlServerHostName -SqlServerPort $SqlServerPort
