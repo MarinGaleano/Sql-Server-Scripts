@@ -1,0 +1,28 @@
+
+--How to find sqlserver errorlog Sqlserver Log
+
+Verificar no registry:
+Registry Editor:
+Computer\HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.PRD\MSSQLServer\Parameters
+
+Ou 
+
+verificar no  "Sql Server Configuration manager" > propriedades da instancia > advanced > Startup parameters > "parametro -e"
+--------------------------------------------------------------------------------
+--https://learn.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sp-readerrorlog-transact-sql?view=sql-server-ver16
+
+--Read errorlog from query window
+
+Query backup failed/success
+
+EXEC sp_readerrorlog 0, 1, 'BACKUP failed'; -- current
+EXEC sp_readerrorlog 1, 1, 'BACKUP failed'; -- .1 (previous)
+EXEC sp_readerrorlog 2, 1, 'BACKUP failed'; -- .2 (the one before that)
+
+-- outra maneira
+EXEC xp_readerrorlog 0, 1, N'failover', NULL, NULL, NULL, 'DESC';
+EXEC xp_readerrorlog 0, 1, N'Availability group', NULL, NULL, NULL, 'DESC';
+EXEC xp_readerrorlog 0, 1, N'Role of availability group', NULL, NULL, NULL, 'DESC';
+ 
+
+--------------------------------------------------------------------------------
