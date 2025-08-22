@@ -1,0 +1,61 @@
+--Example 2
+--This statement creates a stored procedure in each user database that will return a listing of all users in a database, sorted by their modification date 
+
+DECLARE @command varchar(1000) 
+
+SELECT @command = 'IF ''?'' NOT IN(''master'', ''model'', ''msdb'', ''tempdb'') BEGIN USE ? 
+   EXEC(''CREATE PROCEDURE spNewProcedure1 AS SELECT name, createdate, updatedate FROM sys.sysusers ORDER BY updatedate DESC'') END' 
+
+EXEC sp_MSforeachdb @command 
+
+--Exemplo para pegar o ultimo update de cada tabela em todosoos dbs de usuários
+DECLARE @command varchar(1000) 
+
+SELECT @command = 'IF ''?'' NOT IN(''master'', ''model'', ''msdb'', ''tempdb'') BEGIN USE ? 
+   EXEC(''SELECT sd.name, last_user_update, t.name
+FROM   sys.dm_db_index_usage_stats us
+       JOIN sys.tables t
+         ON t.object_id = us.object_id
+	JOIN master.dbo.sysdatabases sd 
+		ON database_id=sd.dbid
+WHERE  database_id = db_id()'') END' 
+
+EXEC sp_MSforeachdb @command 
+---------------------------------------------------
+-- sp_helpfile on all databases
+DECLARE @command varchar(1000) 
+
+SELECT @command = 'IF ''?'' NOT IN(''master'', ''model'', ''msdb'', ''tempdb'') BEGIN USE ? 
+   EXEC(''sp_helpfile'') END' 
+
+EXEC sp_MSforeachdb @command 
+
+---------------------------------------------------
+-- Execute the above select on all databases
+
+
+-- sp_helpfile on all databases
+DECLARE @command varchar(1000) 
+select @command = ' IF ''?'' NOT IN(''master'', ''model'', ''msdb'', ''tempdb'') BEGIN USE ? 
+SELECT db_name(),dp.name AS UserName
+FROM sys.database_role_members drm
+JOIN sys.database_principals dp ON drm.member_principal_id = dp.principal_id
+JOIN sys.database_principals rp ON drm.role_principal_id = rp.principal_id
+WHERE rp.name =  ''db_datareader'' AND dp.name = ''GSM1900\SVC_PRD_EDGe''; END'
+
+EXEC sp_MSforeachdb @command 
+
+--OR
+
+DECLARE @command varchar(1000) 
+select @command = ' 
+SELECT db_name(),dp.name AS UserName
+FROM sys.database_role_members drm
+JOIN sys.database_principals dp ON drm.member_principal_id = dp.principal_id
+JOIN sys.database_principals rp ON drm.role_principal_id = rp.principal_id
+WHERE rp.name =  ''db_datareader'' AND dp.name = ''GSM1900\SVC_PRD_EDGe'' '
+
+EXEC sp_MSforeachdb @command 
+
+-----------------------------------------------------
+
