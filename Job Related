@@ -1,0 +1,484 @@
+-------------------------------------------------------------------------
+-- Configure a User to Create and Manage SQL Server Agent Jobs
+https://learn.microsoft.com/en-us/sql/ssms/agent/configure-a-user-to-create-and-manage-sql-server-agent-jobs?view=sql-server-ver16
+
+
+-------------------------------------------------------------------------
+-- SQL Server Maintenance Solution
+-- Jobs de backup, stats, index reorg, etc
+-- https://ola.hallengren.com/
+
+
+-------------------------------------------------------------------------
+Find the job name:
+
+usando o sp_who2, verificar a coluna jobname
+SPID	Status	Login	HostName	BlkBy	DBName	Command	CPUTime	DiskIO	LastBatch	ProgramName	SPID	REQUESTID
+99   	SUSPENDED                     	GSM1900\SQL_PRD_SV0_SSI	PPOLWSSLX00009	  .	Silo	MERGE	2849423	39255615	07/11 01:15:01	SQLAgent - TSQL JobStep (Job 0xEE3813EBDB94B644AD36A79DECB20220 : Step 2)	99   	0    
+99   	SUSPENDED                     		PPOLWSSLX00009	  .	Silo	MERGE	3344	4984	07/11 01:15:01	SQLAgent - TSQL JobStep (Job 0xEE3813EBDB94B644AD36A79DECB20220 : Step 2)	99   	0    
+
+Depois executar a seguinte query:
+select * from msdb..sysjobs where job_id = 0xEE3813EBDB94B644AD36A79DECB20220
+
+Depois executar a seguinte query:
+select * from msdb..sysjobs where job_id = 0x0FD6C99AFF881B4796C3DBC505907BB1
+
+  
+---------------------------------------------------------------------------
+-- Identify the owner and then change the owner of a SQL Agent Job
+  https://www.sqlservercentral.com/blogs/identify-the-owner-and-then-change-the-owner-of-a-sql-agent-job
+ 
+-- this is also to change job owners: https://www.dbblogger.com/post/t-sql-query-to-change-the-job-owners-for-all-jobs-owned-by-a-specific-login#google_vignette
+ 
+-- List jobs and owners
+
+SELECT J.name AS Job_Name
+, P.name AS Job_Owner
+FROM msdb.dbo.sysjobs J
+INNER JOIN
+sys.server_principals P
+ON J.owner_sid = P.sid 
+where p.name = 'GSM1900\SQL_PRD_SV0_DFS'
+
+-- Count jobs by owner
+SELECT p.name, count(*)
+FROM msdb.dbo.sysjobs J
+INNER JOIN
+sys.server_principals P
+ON J.owner_sid = P.sid 
+group by p.name
+
+where p.name = 'GSM1900\SVC_PRD_RDCX'
+
+-- Gen script to change jobs owned by someone
+
+SELECT  'exec msdb..sp_update_job
+        @job_name = '''+j.name + ''',
+        @owner_login_name = ''CISAdmin''
+        ;'
+FROM msdb.dbo.sysjobs J
+INNER JOIN
+sys.server_principals P
+ON J.owner_sid = P.sid
+where p.name = 'GSM1900\gMSA_PSQL_MIRX$'
+ 
+ CISAdmin
+ 
+-- Change job owner
+
+EXEC sp_update_job
+    @job_name = 'MB_Data_Backfill_CIDB',       -- Name of the job
+    @owner_login_name = 'CISAdmin';  -- New owner login (e.g., 'sa', 'Domain\NewUser')
+ 
+-- List jobs and "Runs as" credentials 
+
+use msdb
+
+SELECT 
+    j.name AS job_name,
+	SUSER_SNAME(j.owner_sid) AS job_owner,
+    js.step_id,
+    js.step_name,
+    js.subsystem,
+    p.name AS run_as_proxy_name,
+    c.credential_identity
+FROM 
+    dbo.sysjobs j
+JOIN 
+    dbo.sysjobsteps js ON j.job_id = js.job_id
+LEFT JOIN 
+    dbo.sysproxies p ON js.proxy_id = p.proxy_id
+LEFT JOIN 
+    sys.credentials c ON p.credential_id = c.credential_id
+WHERE 
+    j.name LIKE '%Hash%'
+ORDER BY 
+    j.name, js.step_id;
+	
+---------------------------------------------------------------------------
+ --List jobs by next run time
+ use msdb
+go
+
+ select
+  S.name AS JobName,
+  SS.name AS ScheduleName,
+  SS.enabled AS ScheduleEnabled,
+  CASE(SS.freq_type)
+    WHEN 1  THEN 'Once'
+    WHEN 4  THEN 'Daily'
+    WHEN 8  THEN (case when (SS.freq_recurrence_factor > 1) then  'Every ' + convert(varchar(3),SS.freq_recurrence_factor) + ' Weeks'  else 'Weekly'  end)
+    WHEN 16 THEN (case when (SS.freq_recurrence_factor > 1) then  'Every ' + convert(varchar(3),SS.freq_recurrence_factor) + ' Months' else 'Monthly' end)
+    WHEN 32 THEN 'Every ' + convert(varchar(3),SS.freq_recurrence_factor) + ' Months' -- RELATIVE
+    WHEN 64 THEN 'SQL Startup'
+    WHEN 128 THEN 'SQL Idle'
+    ELSE '??'
+  END AS Frequency,
+  CASE
+    WHEN (freq_type = 1)                       then 'One time only'
+    WHEN (freq_type = 4 and freq_interval = 1) then 'Every Day'
+    WHEN (freq_type = 4 and freq_interval > 1) then 'Every ' + convert(varchar(10),freq_interval) + ' Days'
+    WHEN (freq_type = 8) then (
+      select
+        'Weekly Schedule' = MIN(D1+ D2+D3+D4+D5+D6+D7 )
+      from (
+        select
+          SS.schedule_id,
+          freq_interval,
+          'D1' = CASE WHEN (freq_interval & 1  <> 0) then 'Sun ' ELSE '' END,
+          'D2' = CASE WHEN (freq_interval & 2  <> 0) then 'Mon ' ELSE '' END,
+          'D3' = CASE WHEN (freq_interval & 4  <> 0) then 'Tue ' ELSE '' END,
+          'D4' = CASE WHEN (freq_interval & 8  <> 0) then 'Wed ' ELSE '' END,
+          'D5' = CASE WHEN (freq_interval & 16 <> 0) then 'Thu ' ELSE '' END,
+          'D6' = CASE WHEN (freq_interval & 32 <> 0) then 'Fri ' ELSE '' END,
+          'D7' = CASE WHEN (freq_interval & 64 <> 0) then 'Sat ' ELSE '' END
+        from msdb..sysschedules ss
+        where freq_type = 8
+      ) as F
+      where schedule_id = SJ.schedule_id
+    )
+    WHEN (freq_type = 16) then 'Day ' + convert(varchar(2),freq_interval)
+    WHEN (freq_type = 32) then (
+      select
+        freq_rel + WDAY
+      from (
+        select
+          SS.schedule_id,
+          'freq_rel' = CASE(freq_relative_interval)
+            WHEN 1 then 'First'
+            WHEN 2 then 'Second'
+            WHEN 4 then 'Third'
+            WHEN 8 then 'Fourth'
+            WHEN 16 then 'Last'
+            ELSE '??'
+          END,
+          'WDAY'     = CASE (freq_interval)
+            WHEN 1 then ' Sun'
+            WHEN 2 then ' Mon'
+            WHEN 3 then ' Tue'
+            WHEN 4 then ' Wed'
+            WHEN 5 then ' Thu'
+            WHEN 6 then ' Fri'
+            WHEN 7 then ' Sat'
+            WHEN 8 then ' Day'
+            WHEN 9 then ' Weekday'
+            WHEN 10 then ' Weekend'
+            ELSE '??'
+          END
+        from msdb..sysschedules SS
+        where SS.freq_type = 32
+      ) as WS
+      where WS.schedule_id = SS.schedule_id
+    )
+  END AS Interval,
+  CASE (freq_subday_type)
+    WHEN 1 then   left(stuff((stuff((replicate('0', 6 - len(active_start_time)))+ convert(varchar(6),active_start_time),3,0,':')),6,0,':'),8)
+    WHEN 2 then 'Every ' + convert(varchar(10),freq_subday_interval) + ' seconds'
+    WHEN 4 then 'Every ' + convert(varchar(10),freq_subday_interval) + ' minutes'
+    WHEN 8 then 'Every ' + convert(varchar(10),freq_subday_interval) + ' hours'
+    ELSE '??'
+  END AS [Time],
+  CASE SJ.next_run_date
+    WHEN 0 THEN cast('n/a' as char(10))
+    ELSE convert(char(10), convert(datetime, convert(char(8),SJ.next_run_date)),120) + ' ' + left(stuff((stuff((replicate('0', 6 - len(next_run_time))) + convert(varchar(6),next_run_time),3,0,':')),6,0,':'),8)
+  END AS NextRunTime,
+  (
+    select
+      STRING_AGG(CONVERT(NVARCHAR(max), ISNULL(sjs2.chunk, '--NULL--')), '')
+    from (
+      select
+        chunk = '-- Step ' + CAST(sjs.step_id as varchar) + ':' + CHAR(13) + sjs.command + CHAR(13) + CHAR(13)
+      from msdb..sysjobsteps AS sjs
+      where sjs.job_id = S.job_id
+      order by sjs.step_id
+      offset 0 rows
+    ) as sjs2
+  ) as JobSteps
+from msdb..sysjobs S
+left join msdb..sysjobschedules SJ on S.job_id = SJ.job_id
+left join msdb..sysschedules SS on SS.schedule_id = SJ.schedule_id
+order by  sj.next_run_time desc 
+-- order by s.name
+-------------------------------------------------------------------------
+-- List active running jobs
+SELECT j.name AS job_name, 
+       ja.start_execution_date AS StartTime,
+	   ja.run_requested_source,
+	   COALESCE(CONVERT(VARCHAR(5),ABS(DATEDIFF(DAY,(GETDATE()-ja.start_execution_date),'1900-01-01'))) + ' '
+               +CONVERT(VARCHAR(10),(GETDATE()-ja.start_execution_date),108),'00 00:00:00') AS [Duration] ,
+			   ja.next_scheduled_run_date,
+			   jh.step_name,
+			   jh.run_status
+FROM msdb.dbo.sysjobactivity ja 
+LEFT JOIN msdb.dbo.sysjobhistory jh ON ja.job_history_id = jh.instance_id
+JOIN msdb.dbo.sysjobs j ON ja.job_id = j.job_id
+WHERE ja.session_id = (SELECT TOP 1 session_id FROM msdb.dbo.syssessions ORDER BY session_id DESC)
+  AND start_execution_date is not null
+  AND stop_execution_date is null
+
+  
+ -- From AI
+  USE msdb;
+GO
+
+SELECT 
+    ja.job_id,
+    j.name AS job_name,
+    s.step_id,
+    s.step_name,
+    ja.start_execution_date,
+    DATEDIFF(SECOND, ja.start_execution_date, GETDATE()) AS run_duration_seconds,
+    r.session_id
+FROM 
+    sysjobs j
+JOIN 
+    sysjobactivity ja ON j.job_id = ja.job_id
+LEFT JOIN 
+    sysjobsteps s ON j.job_id = s.job_id AND ja.last_executed_step_id = s.step_id
+LEFT JOIN 
+    sysjobhistory h ON ja.job_id = h.job_id AND h.step_id = 0 AND h.run_status = 4
+LEFT JOIN 
+    sys.dm_exec_sessions r ON ja.session_id = r.session_id
+WHERE 
+    ja.stop_execution_date IS NULL  -- Job is still running
+    AND ja.start_execution_date IS NOT NULL
+ORDER BY 
+    ja.start_execution_date DESC;
+
+--ou
+
+exec msdb.dbo.sp_help_job @execution_status=1
+
+-------------------------------------------------------------------------
+  --Running processed and wait status
+
+SELECT      r.start_time [Start Time],session_ID [SPID],
+            DB_NAME(database_id) [Database],
+            SUBSTRING(t.text,(r.statement_start_offset/2)+1,
+            CASE WHEN statement_end_offset=-1 OR statement_end_offset=0
+            THEN (DATALENGTH(t.Text)-r.statement_start_offset/2)+1
+            ELSE (r.statement_end_offset-r.statement_start_offset)/2+1
+            END) [Executing SQL],
+            Status,command,wait_type,wait_time,wait_resource,
+            last_wait_type
+FROM        sys.dm_exec_requests r
+OUTER APPLY sys.dm_exec_sql_text(sql_handle) t
+WHERE       session_id != @@SPID -- don't show this query
+AND         session_id = 105 -- don't show system queries
+ORDER BY    r.start_time
+
+----------------------------------------------------------------------------
+-- Job history and messages
+select 
+ j.name as 'JobName',
+ msdb.dbo.agent_datetime(run_date, run_time) as 'RunDateTime',
+ run_duration /* 2 digits would be just seconds, 3 digits would be single digit minutes and seconds.*/
+         as 'RunDurationMinutes',
+((run_duration/10000*3600 + (run_duration/100)%100*60 + run_duration%100 + 31 ) / 60) ,
+		 MESSAGE
+From msdb.dbo.sysjobs j 
+INNER JOIN msdb.dbo.sysjobhistory h 
+ ON j.job_id = h.job_id 
+where j.enabled = 1   --Only Enabled Jobs
+and j.name = 'TPOLWTKCA00001\TST-QICMDB03-1' --Uncomment to search for a single job
+/*
+and msdb.dbo.agent_datetime(run_date, run_time) 
+BETWEEN '12/08/2012' and '12/10/2012'  --Uncomment for date range queries
+*/
+order by JobName, RunDateTime desc
+
+-- Job history, steps and messages
+select 
+ j.name as 'JobName',
+ s.step_id as 'Step',
+ s.step_name as 'StepName',
+ msdb.dbo.agent_datetime(run_date, run_time) as 'RunDateTime',
+ ((run_duration/10000*3600 + (run_duration/100)%100*60 + run_duration%100 + 31 ) / 60) 
+         as 'RunDurationMinutes'
+From msdb.dbo.sysjobs j 
+INNER JOIN msdb.dbo.sysjobsteps s 
+ ON j.job_id = s.job_id
+INNER JOIN msdb.dbo.sysjobhistory h 
+ ON s.job_id = h.job_id 
+ AND s.step_id = h.step_id 
+ AND h.step_id <> 0
+where j.enabled = 1   --Only Enabled Jobs
+and j.name = 'TPOLWTKCA00001\TST-QICMDB03-1' --Uncomment to search for a single job
+/*
+and msdb.dbo.agent_datetime(run_date, run_time) 
+BETWEEN '12/08/2012' and '12/10/2012'  --Uncomment for date range queries
+*/
+order by JobName, RunDateTime desc
+
+-----------------------------------------------------------------------------
+-- Credentials and jobs using proxy:
+
+-- List credentials at server and database level
+SELECT c.credential_id, c.name AS Credential_Name, c.credential_identity, p.name AS Proxy_Name, p.enabled, p.description
+FROM master.sys.credentials c
+LEFT JOIN msdb..sysproxies p
+ON  c.credential_id = p.credential_id
+ 
+ 
+ 
+    select  sysjobsteps.job_id
+    , sysjobs.name as 'JobName'
+    , sysjobsteps.step_id
+    , sysjobsteps.step_name
+    , sysjobsteps.subsystem
+    , sysjobsteps.last_run_date
+    , sysjobsteps.proxy_id
+    --, sysjobsteps.step_uid
+    , sysproxies.name as 'ProxyName'
+    from sysjobsteps
+    left join dbo.sysproxies
+     on sysjobsteps.proxy_id = sysproxies.proxy_id
+    left join dbo.sysjobs
+     on sysjobsteps.job_id = sysjobs.job_id
+    where sysjobsteps.proxy_id > 0
+----------------------------------------------------------------------------
+-- Para jobs repliados no AG secundario, é possivel criar um tratamento e assim evitar q o job rode com erro.
+O tratamento é simplesmente testar se aquele nó esta como primario.
+
+--Neste primeiro caso pode incluir o codigo do job após o teste 
+
+if exists(select is_local, role_desc from sys.dm_hadr_availability_replica_states 
+where role = 1 and role_desc = 'PRIMARY') 
+begin
+print 'This server [' + upper(@@servername) + '] is the primary.' 
+{ insira o codigo aqui }
+end
+else
+print 'This server [' + upper(@@servername) + '] is NOT the primary.'
+
+-- outra alternativa, criar um step testando se é primario, se nao for quit with success mas nao executa o codigo.
+IF EXISTS (
+    SELECT is_local, role_desc
+    FROM sys.dm_hadr_availability_replica_states
+    WHERE role = 1 AND role_desc = 'PRIMARY'
+)
+BEGIN
+    PRINT 'This server [' + UPPER(@@SERVERNAME) + '] is the primary.'
+    -- Aqui o step finaliza com sucesso, e conforme a configuração do job, ele pode ir para o Step 2.
+END
+ELSE
+BEGIN
+    PRINT 'This server [' + UPPER(@@SERVERNAME) + '] is NOT the primary.'
+    -- Força a falha para que o job saia do fluxo normal
+    RAISERROR('Servidor não é primário. Encerrando job com sucesso.', 16, 1);
+END
+
+----------------------------------------------------------------------------
+--Caount de eecutions de jobs por hora
+
+USE msdb;
+GO
+
+SELECT
+   
+    CAST(
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        ) AS DATE
+    ) AS ExecutionDate,
+    DATEPART(HOUR,
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        )
+    ) AS ExecutionHour,
+    COUNT(*) AS JobExecutionCount
+FROM
+    sysjobhistory h
+JOIN
+    sysjobs j ON h.job_id = j.job_id
+WHERE
+    h.run_status = 1  -- Only successful runs (optional)
+    AND h.step_id = 0 -- Only full job-level executions
+    AND CONVERT(date,
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        )
+    ) >= CAST(DATEADD(DAY, -1, GETDATE()) AS DATE)
+GROUP BY
+   
+    CAST(
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        ) AS DATE
+    ),
+    DATEPART(HOUR,
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        )
+    )
+ORDER BY
+   
+    ExecutionDate,
+    ExecutionHour;
+	
+-- Caount de jobs names por hora 
+
+USE msdb;
+GO
+
+SELECT
+    j.name AS JobName,
+    CAST(
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        ) AS DATE
+    ) AS ExecutionDate,
+    DATEPART(HOUR,
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        )
+    ) AS ExecutionHour,
+    COUNT(*) AS JobExecutionCount
+FROM
+    sysjobhistory h
+JOIN
+    sysjobs j ON h.job_id = j.job_id
+WHERE
+    h.run_status = 1  -- Only successful runs (optional)
+    AND h.step_id = 0 -- Only full job-level executions
+    AND CONVERT(date,
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        )
+    ) >= CAST(DATEADD(DAY, -1, GETDATE()) AS DATE)
+GROUP BY
+    j.name,
+    CAST(
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        ) AS DATE
+    ),
+    DATEPART(HOUR,
+        CONVERT(datetime,
+            CAST(h.run_date AS CHAR(8)) + ' ' +
+            STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        )
+    )
+ORDER BY
+    j.name,
+    ExecutionDate,
+    ExecutionHour;
+	
+	
+
+
+
+
+
+
+
+
