@@ -1,0 +1,416 @@
+-- Sql server health check by ChatGPT
+write queries and explanation on comments to check overall health for a sqlerver instance
+
+
+1. SQL Server Instance Version and Build
+Check the version and build of the SQL Server instance to ensure it is up-to-date with the latest patches.
+
+sql
+Copy
+Edit
+-- Get the SQL Server version and build
+SELECT 
+    SERVERPROPERTY('ProductVersion') AS Version,
+    SERVERPROPERTY('ProductLevel') AS ProductLevel,
+    SERVERPROPERTY('Edition') AS Edition,
+    SERVERPROPERTY('EngineEdition') AS EngineEdition;
+Explanation:
+
+This query shows the version, build, product level, and edition of SQL Server.
+
+It's useful for ensuring the server is running the desired version and has the latest updates applied.
+
+2. SQL Server Error Log Check
+Check the SQL Server error log for any critical or recurring errors.
+
+sql
+Copy
+Edit
+-- Check the SQL Server error log for recent errors
+EXEC xp_readerrorlog 0, 1, NULL, NULL, NULL, NULL, 'DESC';
+Explanation:
+
+This reads the most recent error logs. It will show any warnings, errors, or other important events in the server's operation.
+
+The xp_readerrorlog stored procedure allows you to access SQL Server’s error logs.
+
+3. SQL Server Resource Usage (CPU, Memory)
+Monitor resource usage like CPU and memory to ensure the server is not under excessive load.
+
+sql
+Copy
+Edit
+-- Check CPU and memory usage statistics
+SELECT 
+    sqlserver_start_time,
+    cpu_count,
+    total_physical_memory_kb / 1024 AS Total_Memory_MB,
+    available_physical_memory_kb / 1024 AS Available_Memory_MB,
+    system_memory_state_desc
+FROM sys.dm_os_sys_info;
+Explanation:
+
+This query shows the SQL Server instance's startup time, available memory, CPU count, and memory state.
+
+It's helpful to check memory and CPU utilization to identify any bottlenecks.
+
+
+4. SQL Server Database Health
+Check the database status and ensure all databases are online and healthy.
+
+sql
+Copy
+Edit
+-- Check the status of all databases
+SELECT 
+    name AS DatabaseName,
+    state_desc AS DatabaseStatus,
+    recovery_model_desc AS RecoveryModel
+FROM sys.databases
+WHERE state_desc <> 'ONLINE';
+
+Explanation:
+
+This query lists all databases and their statuses.
+
+If any databases are not online (e.g., "RESTORING", "OFFLINE"), this can indicate issues that need attention.
+
+5. Check for Blocking Sessions
+Detect if any sessions are blocking others, which can lead to performance issues.
+
+sql
+Copy
+Edit
+-- Check for blocking sessions in SQL Server
+SELECT 
+    blocking_session_id AS BlockingSessionID,
+    session_id AS BlockedSessionID,
+    wait_type,
+    wait_time,
+    wait_resource,
+    status,
+    login_name,
+    host_name
+FROM sys.dm_exec_requests
+WHERE blocking_session_id <> 0;
+
+Explanation:
+
+This query identifies blocking sessions, which occur when one session holds a lock that another session is waiting for.
+
+Identifying blocking can help you address performance issues or deadlocks.
+
+6. Disk Space Usage
+Monitor the disk space used by the SQL Server database files.
+
+sql
+Copy
+Edit
+-- Check disk space usage for all SQL Server databases
+EXEC sp_MSforeachdb 
+    'USE [?]; 
+    EXEC sp_spaceused;';
+Explanation:
+
+This query runs the sp_spaceused stored procedure for each database, showing the disk space used by data and log files.
+
+It's essential to monitor disk usage to ensure that the system does not run out of space, which can cause SQL Server to crash.
+
+7. Check SQL Server Agent Jobs
+Monitor the status of SQL Server Agent jobs, which could indicate issues with scheduled jobs.
+
+sql
+Copy
+Edit
+-- Check status of all SQL Server Agent jobs
+SELECT 
+    job_id,
+    name AS JobName,
+    enabled AS IsEnabled,
+    description,
+    last_run_date,
+    last_run_duration,
+    last_run_outcome
+FROM msdb.dbo.sysjobs
+LEFT JOIN msdb.dbo.sysjobs_view 
+    ON sysjobs.job_id = sysjobs_view.job_id
+ORDER BY last_run_date DESC;
+Explanation:
+
+This query checks the status of SQL Server Agent jobs, including the last time they ran, their outcome, and whether they are enabled.
+
+Monitoring job status can help identify failed or disabled jobs that need attention.
+
+8. Check Active Connections
+Get the list of active connections to the SQL Server instance.
+
+sql
+Copy
+Edit
+-- Check active connections to the SQL Server instance
+SELECT 
+    session_id,
+    login_name,
+    host_name,
+    program_name,
+    status
+FROM sys.dm_exec_sessions
+WHERE is_user_process = 1;
+Explanation:
+
+This query retrieves active user connections to SQL Server, helping you monitor who is connected and the status of their sessions.
+
+You can also identify any sessions that are idle or potentially causing performance issues.
+
+9. Check SQL Server Wait Statistics
+Monitor the wait statistics to identify potential performance bottlenecks.
+
+sql
+Copy
+Edit
+-- Check wait statistics in SQL Server
+SELECT 
+    wait_type, 
+    wait_time_ms / 1000.0 AS wait_time_seconds,
+    wait_count,
+    wait_time_ms / wait_count AS avg_wait_time_ms
+FROM sys.dm_exec_wait_stats
+WHERE wait_type NOT IN ('CLR_SEMAPHORE', 'LAZYWRITER', 'RESOURCE_QUEUE', 'SLEEP_TASK', 'SLEEP_SYSTEMTASK')
+ORDER BY wait_time_seconds DESC;
+
+Explanation:
+
+This query returns the most common wait types and the time SQL Server spends on each wait type.
+
+Long wait times on specific resources may indicate bottlenecks (e.g., IO, CPU, etc.).
+
+10. Check SQL Server Replication Health
+If your server is part of a replication topology, you can monitor its health.
+
+sql
+Copy
+Edit
+-- Check replication status
+EXEC sp_replmonitorhelpsubscription;
+Explanation:
+
+This query checks the health of replication subscriptions (if applicable).
+
+It will help identify issues in replicated environments, such as latency or errors.
+
+-----------------------------------------------------------------------------------------------------
+Now, complete that by writing queries and explanation to check Sql server Availability group overal health
+
+To check the health of a SQL Server Availability Group, you need to monitor various aspects such as the synchronization state, the health of each replica, and the status of the databases within the Availability Group. SQL Server provides a number of dynamic management views (DMVs) and functions to help you monitor these aspects.
+
+Here are the key queries you can run to check the overall health of a SQL Server Availability Group:
+
+
+1. Check Availability Group Health
+To check the overall health of the Availability Group and whether all replicas are synchronized, use the following query:
+
+sql
+Copy
+Edit
+-- Check overall health of the Availability Group
+SELECT 
+    ag.name AS AvailabilityGroup,
+    ar.replica_server_name AS ReplicaName,
+    ar.availability_mode_desc AS AvailabilityMode,
+    ags.synchronization_state_desc AS SynchronizationState,
+    ar.role_desc AS Role,
+    ar.operational_state_desc AS OperationalState,
+    ar.database_state_desc AS DatabaseState,
+    ar.last_hadr_failure_message AS LastHadrFailureMessage
+FROM 
+    sys.availability_groups ag
+JOIN 
+    sys.availability_replicas ar ON ag.group_id = ar.group_id
+JOIN 
+    sys.dm_hadr_availability_group_states ags ON ag.group_id = ags.group_id
+WHERE 
+    ar.role_desc IN ('PRIMARY', 'SECONDARY')
+ORDER BY 
+    ag.name, ar.replica_server_name;
+Explanation:
+
+This query provides a summary of each Availability Group, its replicas, and the state of synchronization.
+
+synchronization_state_desc shows whether the replica is synchronized (e.g., SYNCHRONIZED, SYNCHRONIZING, NOT SYNCHRONIZED).
+
+role_desc indicates the role of the replica (PRIMARY or SECONDARY).
+
+operational_state_desc and database_state_desc show whether the replica is in a healthy operational state and whether databases are accessible.
+
+last_hadr_failure_message provides any recent failure messages if there are issues with the Availability Group.
+
+
+
+2. Check Replica States and Synchronization
+To get detailed synchronization information for each Availability Group replica:
+
+sql
+Copy
+Edit
+-- Check detailed synchronization state of each replica in the Availability Group
+SELECT 
+    ag.name AS AvailabilityGroup,
+    ar.replica_server_name AS ReplicaName,
+    ds.database_id AS DatabaseID,
+    ds.database_name AS DatabaseName,
+    ds.synchronization_state_desc AS SyncState,
+    ds.synchronization_state_desc AS SynchronizationState,
+    ds.log_send_queue_size_in_bytes AS LogSendQueueSize,
+    ds.redo_queue_size_in_bytes AS RedoQueueSize,
+    ds.database_state_desc AS DatabaseState
+FROM 
+    sys.dm_hadr_database_replica_states ds
+JOIN 
+    sys.availability_replicas ar ON ds.replica_id = ar.replica_id
+JOIN 
+    sys.availability_groups ag ON ar.group_id = ag.group_id
+ORDER BY 
+    ag.name, ar.replica_server_name, ds.database_name;
+Explanation:
+
+This query checks the synchronization state of each database in each replica.
+
+synchronization_state_desc tells whether the database is synchronized (SYNCHRONIZED, SYNCHRONIZING, etc.).
+
+log_send_queue_size_in_bytes and redo_queue_size_in_bytes show how much log data is waiting to be sent or redone, respectively. Large values may indicate replication lag.
+
+database_state_desc shows the state of the database (e.g., ONLINE, OFFLINE).
+
+3. Check for Failovers
+This query shows the failover history of the Availability Group, which can help you understand how often failovers have occurred and whether any issues are present.
+
+sql
+Copy
+Edit
+-- Check failover history for the Availability Group
+SELECT 
+    ag.name AS AvailabilityGroup,
+    fh.time AS FailoverTime,
+    fh.failover_type_desc AS FailoverType,
+    fh.failure_condition_desc AS FailureCondition,
+    fh.server_name AS ServerName
+FROM 
+    sys.availability_group_failures fh
+JOIN 
+    sys.availability_groups ag ON fh.group_id = ag.group_id
+ORDER BY 
+    fh.time DESC;
+Explanation:
+
+This query retrieves the failover history for the Availability Group, which can help you identify if there have been any unexpected failovers.
+
+failover_type_desc shows the type of failover (manual or automatic).
+
+failure_condition_desc shows if the failover was due to a specific failure condition (e.g., ERROR, USER INITIATED).
+
+server_name shows which server initiated the failover.
+
+
+4. Check for Database Health in the Availability Group
+To ensure that all databases in the Availability Group are healthy and synchronized, use the following query:
+
+sql
+Copy
+Edit
+-- Check the health of databases in the Availability Group
+SELECT 
+    ag.name AS AvailabilityGroup,
+    db.name AS DatabaseName,
+    db.state_desc AS DatabaseState,
+    ds.synchronization_state_desc AS SynchronizationState,
+    ds.synchronization_health_desc AS SynchronizationHealth
+FROM 
+    sys.availability_groups ag
+JOIN 
+    sys.availability_replicas ar ON ag.group_id = ar.group_id
+JOIN 
+    sys.dm_hadr_database_replica_states ds ON ar.replica_id = ds.replica_id
+JOIN 
+    sys.databases db ON db.database_id = ds.database_id
+WHERE 
+    db.state_desc = 'ONLINE'
+ORDER BY 
+    ag.name, db.name;
+Explanation:
+
+This query checks the status of each database in the Availability Group.
+
+state_desc gives the current state of the database (e.g., ONLINE, RESTORING).
+
+synchronization_state_desc and synchronization_health_desc provide additional information about whether the database is synchronized and if it is healthy.
+
+
+5. Check for Database Failovers in the Availability Group
+To check whether databases have failed over in the Availability Group:
+
+sql
+Copy
+Edit
+-- Check the failover status for databases in the Availability Group
+SELECT 
+    ag.name AS AvailabilityGroup,
+    db.name AS DatabaseName,
+    fs.failover_type_desc AS FailoverType,
+    fs.failure_condition_desc AS FailureCondition,
+    fs.server_name AS ServerName,
+    fs.time AS FailoverTime
+FROM 
+    sys.availability_group_failures fs
+JOIN 
+    sys.availability_groups ag ON fs.group_id = ag.group_id
+JOIN 
+    sys.databases db ON fs.database_id = db.database_id
+ORDER BY 
+    fs.time DESC;
+	
+Explanation:
+
+This query shows the failover events for databases within the Availability Group.
+
+It helps identify whether any unexpected failovers have occurred for specific databases and the reason behind them.
+
+
+6. Check Availability Group Listener Health
+The Availability Group Listener is the endpoint that applications connect to for high availability. Checking its status ensures that clients can connect to the right replica.
+
+sql
+Copy
+Edit
+-- Check the health of the Availability Group Listener
+SELECT 
+    ag.name AS AvailabilityGroup,
+    al.name AS ListenerName,
+    al.dns_name AS DNSName,
+    al.port AS Port,
+    al.state_desc AS ListenerState
+FROM 
+    sys.availability_groups ag
+JOIN 
+    sys.availability_group_listeners al ON ag.group_id = al.group_id
+ORDER BY 
+    al.name;
+Explanation:
+
+This query checks the health of the Availability Group listener.
+
+ListenerState shows if the listener is operational or if there are any issues with it (e.g., ONLINE, OFFLINE).
+
+The listener DNS and port information is also included for troubleshooting connectivity issues.
+
+Summary of Key Metrics to Monitor:
+Synchronization State: Ensures that all replicas are synchronized (critical for disaster recovery).
+
+Failover History: Identifies unexpected failovers or failover patterns that might indicate issues.
+
+Replica Health: Monitoring the status of each replica and the database states helps in ensuring high availability.
+
+Listener Health: Ensures that clients can connect to the right replica.
+
+By using these queries, you can keep a close eye on the health of your SQL Server Availability Groups and ensure that your high availability and disaster recovery setup is working correctly. Would you like to go deeper into any of these areas?
+
+
