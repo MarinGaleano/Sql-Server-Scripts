@@ -1,0 +1,437 @@
+---------------------------------------------------------------------------------
+C:\Users\adm_jgalean8>powershell                                                                                       
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+Install the latest PowerShell for new features and improvements! https://aka.ms/PSWindows
+
+Loading personal and system profiles took 1364ms.
+PS C:\Users\adm_jgalean8> Test-NetConnection -ComputerName ran-aurora-pg14-db01-prd-replica.ckyabfh4h88h.us-west-2.rds.amazonaws.com -Port 5432
+
+
+ComputerName     : ran-aurora-pg14-db01-prd-replica.ckyabfh4h88h.us-west-2.rds.amazonaws.com
+RemoteAddress    : 10.6.184.50
+RemotePort       : 5432
+InterfaceAlias   : Ethernet
+SourceAddress    : 10.142.124.123
+TcpTestSucceeded : True
+
+
+
+PS C:\Users\adm_jgalean8>
+
+
+Test-NetConnection -ComputerName 10.130.142.100 -Port 59450
+
+Test-NetConnection -ComputerName PPOLWFPAR00006 -Port 50002
+
+PPOLWFPAR00006\PRD,50002
+
+-- Para testar conexao com o destino:
+-- Dentro do powershell
+tnc <servidor destino> -Port <port number>
+
+tracert <servidor destino>
+
+Ex:
+tnc prdsqlamag1 -Port 5500
+e
+tracert prdsqlamag1
+
+---------------------------------------------------------------------------------
+--Script to monitor counters
+$serverName = $env:COMPUTERNAME
+$Counters = @(
+    ("\\$serverName" + "\Process(sqlservr*)\% User Time"), ("\\$serverName" + "\Process(sqlservr*)\% Privileged Time")
+)
+Get-Counter -Counter $Counters -MaxSamples 30 | ForEach {
+    $_.CounterSamples | ForEach {
+        [pscustomobject]@{
+            TimeStamp = $_.TimeStamp
+            Path = $_.Path
+            Value = ([Math]::Round($_.CookedValue, 3))
+        }
+        Start-Sleep -s 2
+    }
+}
+
+TimeStamp             Path                                                    Value
+---------             ----                                                    -----
+12/28/2023 4:42:27 AM \\lpolwxecm00024\process(sqlservr)\% user time       2546.336
+12/28/2023 4:42:27 AM \\lpolwxecm00024\process(sqlservr)\% privileged time   38.769
+12/28/2023 4:42:32 AM \\lpolwxecm00024\process(sqlservr)\% user time        2155.48
+12/28/2023 4:42:32 AM \\lpolwxecm00024\process(sqlservr)\% privileged time   49.409
+12/28/2023 4:42:37 AM \\lpolwxecm00024\process(sqlservr)\% user time       1778.986
+12/28/2023 4:42:37 AM \\lpolwxecm00024\process(sqlservr)\% privileged time   69.562
+12/28/2023 4:42:42 AM \\lpolwxecm00024\process(sqlservr)\% user time       1116.518
+12/28/2023 4:42:42 AM \\lpolwxecm00024\process(sqlservr)\% privileged time   28.693
+12/28/2023 4:42:47 AM \\lpolwxecm00024\process(sqlservr)\% user time         185.64
+
+PS C:\Users\adm_jgalean8> 
+---------------------------------------------------------------------------------
+-- Para listar portas usadas no servidor
+Get-NetTCPConnection
+
+-- Para listar portas usadas pelo Sql serverName
+ForEach ($SQL_Proc in Get-Process | Select-Object -Property ProcessName, Id | Where-Object {$_.ProcessName -like "*SQL*"})
+{
+    Get-NetTCPConnection | `
+     Where-Object {$_.OwningProcess -eq $SQL_Proc.id} | `
+      Select-Object -Property `
+                                @{Label ="Process_Name";e={$SQL_Proc.ProcessName}}, `
+                                @{Label ="Local_Address";e={$_.LocalAddress + ":" + $_.LocalPort }},  `
+                                @{Label ="Remote_Address";e={$_.RemoteAddress + ":" + $_.RemotePort}}, State | `
+      Format-Table
+} 
+
+
+------------------------------------------------------------------------------------
+-- A partir de um servidor ponte listar propriedades dos servicoes em um servidor remoto
+
+gwmi Win32_Service -Computer PPOLWCARX0000A -Filter "Name like 'SQL%'" | Where-Object {$_.StartName} | Select-Object Name, startname
+
+
+------------------------------------------------------------------------------------
+-- Listando eventos de quarentena
+Get-WinEvent -LogName "Microsoft-Windows-FailoverClustering/Operational" | Where-Object { $_.Id -eq 1288 } | Select-Object TimeCreated, Message
+ 
+ou no 1287
+1287 - evento que mostra que entrou em quarentena
+1288 - evento da saída da quarentena
+ 
+------------------------------------------------------------------------------------
+-- Windows drives and sizes:
+Get-Volume | Select-Object DriveLetter, ` 
+    @{Name="Size_GB"; Expression={[math]::Round($_.Size / 1GB, 2)}}, ` 
+    @{Name="FreeSpace_GB"; Expression={[math]::Round($_.SizeRemaining / 1GB, 2)}}, ` 
+    @{Name="UsedSpace_GB"; Expression={[math]::Round(($_.Size - $_.SizeRemaining) / 1GB, 2)}}, ` 
+    @{Name="FreePercentage"; Expression={[math]::Round(($_.SizeRemaining / $_.Size) * 100, 2)}} ` 
+    | Where-Object { $_.Size_GB -gt 0 }  # Filters out volumes with 0 size (e.g., system partitions)
+
+
+Get-Volume -DriveLetter C | Select-Object DriveLetter, ` 
+    @{Name="Size_GB"; Expression={[math]::Round($_.Size / 1GB, 2)}}, ` 
+    @{Name="FreeSpace_GB"; Expression={[math]::Round($_.SizeRemaining / 1GB, 2)}}, ` 
+    @{Name="UsedSpace_GB"; Expression={[math]::Round(($_.Size - $_.SizeRemaining) / 1GB, 2)}}, ` 
+    @{Name="FreePercentage"; Expression={[math]::Round(($_.SizeRemaining / $_.Size) * 100, 2)}}
+
+--Windows moint points and sizes:
+
+Get-CimInstance -ClassName Win32_Volume |  
+Where-Object { $_.DriveLetter -eq $null -and $_.Label -ne $null } |  
+Select-Object Label, Name, ` 
+    @{Name="TotalSize_GB"; Expression={[math]::Round($_.Capacity / 1GB, 2)}}, ` 
+    @{Name="FreeSpace_GB"; Expression={[math]::Round($_.FreeSpace / 1GB, 2)}}, ` 
+    @{Name="FreePercentage"; Expression={[math]::Round(($_.FreeSpace / $_.Capacity) * 100, 2)}} |  
+Format-Table -AutoSize
+
+------------------------------------------------------------------------------------
+-- List by file zise:
+
+Get-ChildItem -Path "C:\SQLData\" -Recurse -File |  
+Where-Object { $_.Length -gt 1GB } |  
+Sort-Object Length -Descending |  
+Select-Object FullName, @{Name="SizeGB";Expression={[math]::Round($_.Length /1GB,2)}} -First 10
+
+-----------------------------------------------------------------------------------
+-- List Sql server services account info
+
+EXEC xp_cmdshell 'powershell -command "Get-WmiObject -Class Win32_Service | Where-Object {$_.Name -like ''MSSQL*'' -or $_.Name -like ''SQLAgent*''} | Select-Object Name, StartName"';
+
+-----------------------------------------------------------------------------------
+-- List AD group members
+
+Get-ADGroupMember -Identity "CyberArk_SQLAdmin_PRD_A" | Select-Object Name, SamAccountName, ObjectClass
+
+-- Order by username
+Get-ADGroupMember -Identity "ADM_SQLAdmin" -Recursive | Select-Object Name, SamAccountName, ObjectClass |Sort-Object Name
+
+-- List filtering username
+Get-ADGroupMember -Identity "ADM_SQLAdmin" | Where-Object { $_.ObjectClass -eq 'user' -and $_.Name -like "ADM_V*" } | Select-Object Name, SamAccountName, ObjectClass | Sort-Object Name
+
+-----------------------------------------------------------------------------------
+--On power shell run as administrator
+--Check is ad account is locked:
+
+get-aduser svc_prd_edge -properties lockedout
+
+--Check last password rotation on AD:
+
+get-aduser svc_prd_edge -properties passwordlastset
+
+-- All windows AD user properties:
+
+Get-ADUser username -Properties * | Format-List
+
+ 
+=============================================================================================================
+--PowerShell Script: Physical Disk Monitor with Averages in KB/s
+
+📦 Uses PhysicalDisk counters
+📏 Reports KB/s, ms, queue length
+⏱ Refreshes every 5 seconds
+🧾 Includes timestamp
+📊 Shows data already averaged by Windows
+
+Replace Clear-Host with "" | Out-Null to keep the console history.
+
+Pipe output to a log file: powershell | Out-File -Append "DiskPerfLog.txt"
+
+
+while ($true) {
+    #Clear-Host
+	"" | Out-Null
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Host "Timestamp: $timestamp`n"
+
+    # Get current values from disk performance counters
+    $counters = Get-Counter -Counter @(
+        '\PhysicalDisk(*)\Disk Read Bytes/sec',
+        '\PhysicalDisk(*)\Disk Write Bytes/sec',
+        '\PhysicalDisk(*)\Avg. Disk sec/Transfer',
+        '\PhysicalDisk(*)\Current Disk Queue Length'
+    )
+
+    # Group samples by disk (excluding _Total)
+    $grouped = $counters.CounterSamples | Where-Object {
+        $_.InstanceName -ne "_Total"
+    } | Group-Object InstanceName
+
+    # Header format
+    $format = "{0,-15} {1,12} {2,12} {3,16} {4,14}"
+    Write-Host ($format -f "Disk", "Read KB/s", "Write KB/s", "Resp Time (ms)", "Queue Length") -ForegroundColor Cyan
+    Write-Host ($format -f "----", "-----------", "------------", "----------------", "-------------")
+
+    foreach ($group in $grouped) {
+        $disk = $group.Name
+        $values = @{
+            ReadKB     = 0
+            WriteKB    = 0
+            RespTimeMs = 0
+            QueueLen   = 0
+        }
+
+        foreach ($sample in $group.Group) {
+            switch -Wildcard ($sample.Path) {
+                "*Disk Read Bytes/sec" {
+                    $values.ReadKB = [math]::Round($sample.CookedValue / 1KB, 2)
+                }
+                "*Disk Write Bytes/sec" {
+                    $values.WriteKB = [math]::Round($sample.CookedValue / 1KB, 2)
+                }
+                "*Avg. Disk sec/Transfer" {
+                    $values.RespTimeMs = [math]::Round($sample.CookedValue * 1000, 2)
+                }
+                "*Current Disk Queue Length" {
+                    $values.QueueLen = [math]::Round($sample.CookedValue, 2)
+                }
+            }
+        }
+
+        Write-Host ($format -f $disk, $values.ReadKB, $values.WriteKB, $values.RespTimeMs, $values.QueueLen)
+    }
+
+    Start-Sleep -Seconds 5
+}
+
+
+
+------------------------------------------------------------------------------------------------------------------
+-- Server health check from poershell
+
+# Server Health Check Script
+Clear-Host
+$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+Write-Host "`n=== SERVER HEALTH CHECK ($timestamp) ===`n" -ForegroundColor Cyan
+
+# 1. CPU Load
+Write-Host ">> CPU Usage:" -ForegroundColor Yellow
+Get-CimInstance Win32_Processor | ForEach-Object {
+    "{0,-20}: {1}%" -f $_.Name, $_.LoadPercentage
+}
+
+# 2. Memory Usage
+Write-Host "`n>> Memory Usage:" -ForegroundColor Yellow
+$os = Get-CimInstance Win32_OperatingSystem
+$total = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
+$free = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
+$used = [math]::Round($total - $free, 2)
+"{0,-20}: {1} GB" -f "Total Memory", $total
+"{0,-20}: {1} GB" -f "Used Memory", $used
+"{0,-20}: {1} GB" -f "Free Memory", $free
+
+# 3. Disk Space
+Write-Host "`n>> Disk Space:" -ForegroundColor Yellow
+Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object {
+    $size = [math]::Round($_.Size / 1GB, 2)
+    $free = [math]::Round($_.FreeSpace / 1GB, 2)
+    $used = $size - $free
+    $percentFree = [math]::Round(($free / $size) * 100, 2)
+    "{0}: {1} GB total | {2} GB free ({3}% free)" -f $_.DeviceID, $size, $free, $percentFree
+}
+
+# 4. Disk Performance
+Write-Host "`n>> Disk Performance:" -ForegroundColor Yellow
+Get-Counter -Counter '\PhysicalDisk(*)\Avg. Disk sec/Transfer' | Select-Object -ExpandProperty CounterSamples | Where-Object { $_.InstanceName -ne "_Total" } | ForEach-Object {
+    $time = [math]::Round($_.CookedValue * 1000, 2)
+    "{0,-10}: {1} ms response time" -f $_.InstanceName, $time
+}
+
+# 5. Network Usage
+Write-Host "`n>> Network Usage (Current):" -ForegroundColor Yellow
+Get-Counter -Counter @(
+    '\Network Interface(*)\Bytes Received/sec',
+    '\Network Interface(*)\Bytes Sent/sec'
+) | Select-Object -ExpandProperty CounterSamples | ForEach-Object {
+    $kb = [math]::Round($_.CookedValue / 1KB, 2)
+    $dir = if ($_.Path -like '*Received*') { "In " } else { "Out" }
+    "{0,-20} {1}: {2} KB/s" -f $_.InstanceName, $dir, $kb
+}
+
+# 6. Services Status
+Write-Host "`n>> Critical Services Status:" -ForegroundColor Yellow
+$criticalServices = @("W32Time", "WinRM", "BITS", "LanmanServer", "LanmanWorkstation", "EventLog")
+foreach ($svc in $criticalServices) {
+    $s = Get-Service -Name $svc -ErrorAction SilentlyContinue
+    if ($s) {
+        "{0,-20}: {1}" -f $s.Name, $s.Status
+    } else {
+        "{0,-20}: Not Found" -f $svc
+    }
+}
+
+# 6.1. SQL Server Services Check
+Write-Host "`n>> SQL Server Services:" -ForegroundColor Yellow
+Get-Service | Where-Object { $_.Name -match '^MSSQL.*|SQLAgent.*' } | ForEach-Object {
+    "{0,-30}: {1}" -f $_.Name, $_.Status
+}
+
+#6.2 Sql Server instances
+
+Write-Host "`n>> SQL Server Instances Detected via Service Names:" -ForegroundColor Yellow
+
+# Match all services that start with "MSSQL$" or are named "MSSQLSERVER" (default instance)
+Get-Service | Where-Object { $_.Name -like "MSSQL$*" -or $_.Name -eq "MSSQLSERVER" } | ForEach-Object {
+    $instanceName = if ($_.Name -eq "MSSQLSERVER") { "(Default)" } else { $_.Name -replace "^MSSQL\$", "" }
+    Write-Host "Instance: $instanceName - Service: $($_.Name) - Status: $($_.Status)"
+}
+
+# 6.3. SQL Server Instance and Database Response Time
+# Get all local SQL Server instance names
+$instances = Get-Service | Where-Object { $_.Name -like "MSSQL$*" -or $_.Name -eq "MSSQLSERVER" } | ForEach-Object {
+    if ($_.Name -eq "MSSQLSERVER") {
+        "."
+    } else {
+        ".\" + ($_.Name -replace "^MSSQL\$", "")
+    }
+}
+
+# Loop through each instance and measure response time per database
+foreach ($instance in $instances) {
+    try {
+        # Connect to master DB first to get list of databases
+        $masterConnStr = "Server=$instance;Integrated Security=SSPI;Initial Catalog=master;Connection Timeout=3"
+        $dbListQuery = "SELECT name FROM sys.databases WHERE state = 0"  # only online DBs
+
+        $conn = New-Object System.Data.SqlClient.SqlConnection $masterConnStr
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandText = $dbListQuery
+        $conn.Open()
+        $reader = $cmd.ExecuteReader()
+
+        $dbNames = @()
+        while ($reader.Read()) {
+            $dbNames += $reader["name"]
+        }
+        $reader.Close()
+        $conn.Close()
+
+        $Query = "SELECT TOP 100 * from sys.objects"
+	Write-Host "`nInstance: $instance" -ForegroundColor Cyan
+	Write-Host "`Response time for a basec query: ${Query} " -ForegroundColor Cyan
+
+        foreach ($db in $dbNames) {
+            try {
+                $dbConnStr = "Server=$instance;Database=$db;Integrated Security=SSPI;Connection Timeout=3"
+                $conn = New-Object System.Data.SqlClient.SqlConnection $dbConnStr
+                $cmd = $conn.CreateCommand()
+		$cmd.CommandText = $Query             
+
+                $conn.Open()
+		$start = Get-Date
+                $cmd.ExecuteScalar() | Out-Null
+                $end = Get-Date
+                $conn.Close()
+                $duration = [math]::Round(($end - $start).TotalMilliseconds, 2)
+
+                "{0,-30} : {1,6} ms" -f $db, $duration
+            } catch {
+                "{0,-30} : ERROR - $($_.Exception.Message)" -f $db
+            }
+        }
+
+    } catch {
+        Write-Host "Could not connect to instance ${instance}: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# 7. System Uptime
+Write-Host "`n>> System Uptime:" -ForegroundColor Yellow
+$uptime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+$ts = (Get-Date) - $uptime
+"Last Boot Time     : $($uptime.ToString('yyyy-MM-dd HH:mm:ss'))"
+"Uptime             : $($ts.Days) days, $($ts.Hours) hours, $($ts.Minutes) minutes"
+
+# 8. Event Logs (Last Hour - Errors)
+Write-Host "`n>> Recent System Errors (Last 1 Hour):" -ForegroundColor Yellow
+Get-WinEvent -FilterHashtable @{LogName='System'; Level=2; StartTime=(Get-Date).AddHours(-1)} -MaxEvents 5 |
+    Select-Object TimeCreated, Id, Message | Format-List
+
+# 9. System Info
+Write-Host "`n>> System Info:" -ForegroundColor Yellow
+$comp = Get-CimInstance Win32_ComputerSystem
+$bios = Get-CimInstance Win32_BIOS
+$proc = Get-CimInstance Win32_Processor
+$virtual = if ($comp.Model -match "Virtual|VMware|KVM|Hyper-V") { "Virtual" } else { "Physical" }
+
+"Computer Name      : $($comp.Name)"
+"Manufacturer       : $($comp.Manufacturer)"
+"Model              : $($comp.Model)"
+"BIOS Version       : $($bios.SMBIOSBIOSVersion)"
+"Domain             : $($comp.Domain)"
+"Logged On User     : $env:USERNAME"
+"System Type        : $virtual"
+"Logical Processors : $($comp.NumberOfLogicalProcessors)"
+"Physical CPUs      : $($comp.NumberOfProcessors)"
+
+
+
+Write-Host "`n=== END OF HEALTH REPORT ===`n" -ForegroundColor Cyan
+
+---------------------------------------------------------------------------------------------------------
+-- Finde the instance named
+
+Write-Host "`n>> SQL Server Instances Detected via Service Names:" -ForegroundColor Yellow
+
+# Match all services that start with "MSSQL$" or are named "MSSQLSERVER" (default instance)
+Get-Service | Where-Object { $_.Name -like "MSSQL$*" -or $_.Name -eq "MSSQLSERVER" } | ForEach-Object {
+    $instanceName = if ($_.Name -eq "MSSQLSERVER") { "(Default)" } else { $_.Name -replace "^MSSQL\$", "" }
+    Write-Host "Instance: $instanceName - Service: $($_.Name) - Status: $($_.Status)"
+}
+
+>> SQL Server Instances Detected via Service Names:
+Instance: PRD - Service: MSSQL$PRD - Status: Running
+
+--or 
+
+Get-Service | Where-Object { $_.Name -like "MSSQL$*" -or $_.Name -eq "MSSQLSERVER" } | ForEach-Object {
+    if ($_.Name -eq "MSSQLSERVER") {
+        "(Default)"
+    } else {
+        $_.Name -replace "^MSSQL\$", ""
+    }
+}
+
+PRD
+
+
