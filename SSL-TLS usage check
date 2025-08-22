@@ -1,0 +1,73 @@
+How to Check If SQL Server 2017 Is Using TLS
+🔍 1. Check the SQL Server Error Log
+SQL Server 2017 logs the protocol used during connection establishment.
+
+Run this query:
+
+EXEC xp_readerrorlog 0, 1, N'Secure';
+Look for log entries like:
+
+A TLS 1.2 connection was established with the client.
+This confirms SQL Server is accepting TLS connections and shows the TLS version.
+
+Usar este:
+------------------------------------------------------------------
+🖥️ 2. Check Encryption Settings in SQL Server Configuration Manager
+Open SQL Server Configuration Manager.
+
+Go to:
+
+SQL Server Network Configuration > Protocols for MSSQLSERVER (or your instance)
+Right-click TCP/IP, select Properties > go to the Flags tab.
+
+Check if Force Encryption is set to:
+
+Yes → All connections will require TLS.
+
+No → Encryption is optional (clients may still use TLS if supported).
+
+⚠️ For this to work properly, a valid SSL/TLS certificate must be installed.
+
+📋 3. Use PowerShell to Confirm TLS Usage
+On the client machine, check what protocols are supported:
+
+powershell
+[Net.ServicePointManager]::SecurityProtocol
+
+--Até aqui
+---------------------------------------------------------------
+Or do a TLS handshake test (from a client):
+
+powershell
+
+Test-NetConnection -ComputerName <your-sql-server> -Port 1433
+
+For deeper testing, use tools like openssl or Wireshark.
+
+🔒 4. Check Windows Registry for TLS Protocols
+Ensure that TLS 1.2 is enabled on the Windows OS that hosts SQL Server:
+
+Check registry paths:
+
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2\Server
+
+Ensure:
+
+Enabled = 1
+
+DisabledByDefault = 0
+
+Also check the Client key under the same path for outgoing connections (if relevant).
+
+🧪 5. Monitor with Wireshark (Advanced)
+If you want to capture and verify network-level protocol use:
+
+Run Wireshark on the SQL Server or client.
+
+Filter by:
+
+tcp.port == 1433
+Look for TLS handshake entries like Client Hello, Server Hello.
+
+These will show the negotiated TLS version.
+
