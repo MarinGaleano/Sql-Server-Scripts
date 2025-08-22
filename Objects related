@@ -1,0 +1,208 @@
+--report disk space usage per table and within each table per allocation unit.
+
+SELECT
+  t.object_id,
+  OBJECT_NAME(t.object_id) ObjectName,
+  sum(u.total_pages) * 8 Total_Reserved_kb,
+  sum(u.used_pages) * 8 Used_Space_kb,
+  u.type_desc,
+  max(p.rows) RowsCount
+FROM
+  sys.allocation_units u
+  JOIN sys.partitions p on u.container_id = p.hobt_id
+  JOIN sys.tables t on p.object_id = t.object_id
+GROUP BY
+  t.object_id,
+  OBJECT_NAME(t.object_id),
+  u.type_desc
+ORDER BY
+  Used_Space_kb desc,
+  ObjectName;
+---------------------------------------------------------------------------------
+--List tables by row count
+SELECT
+      QUOTENAME(SCHEMA_NAME(sOBJ.schema_id)) + '.' + QUOTENAME(sOBJ.name) AS [TableName]
+      , SUM(sdmvPTNS.row_count) AS [RowCount]
+FROM
+      sys.objects AS sOBJ
+      INNER JOIN sys.dm_db_partition_stats AS sdmvPTNS
+            ON sOBJ.object_id = sdmvPTNS.object_id
+WHERE 
+      sOBJ.type = 'U'
+      AND sOBJ.is_ms_shipped = 0x0
+      AND sdmvPTNS.index_id < 2
+GROUP BY
+      sOBJ.schema_id
+      , sOBJ.name
+ORDER BY SUM(sdmvPTNS.row_count) desc
+GO
+
+---------------------------------------------------------------------------------
+--List table indexes by row count
+
+SELECT 
+    t.name AS TableName,
+    i.name as indexName,
+    sum(p.rows) as RowCounts,
+    sum(a.total_pages) as TotalPages, 
+    sum(a.used_pages) as UsedPages, 
+    sum(a.data_pages) as DataPages,
+    (sum(a.total_pages) * 8) / 1024 as TotalSpaceMB, 
+    (sum(a.used_pages) * 8) / 1024 as UsedSpaceMB, 
+    (sum(a.data_pages) * 8) / 1024 as DataSpaceMB
+FROM 
+    sys.tables t
+INNER JOIN sys.indexes i ON t.object_id = i.object_id
+INNER JOIN 
+    sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+INNER JOIN 
+    sys.allocation_units a ON p.partition_id = a.container_id 
+WHERE 
+    t.name NOT LIKE 'dt%' AND
+    i.object_id > 255 AND  
+    i.index_id <= 1 
+GROUP BY 
+    t.name, i.object_id, i.index_id, i.name 
+ORDER BY 
+    sum(p.rows) desc , object_name(i.object_id)
+	
+
+---------------------------------------------------------------------------------
+-- List invalid objects on a database 1
+
+SET NOCOUNT ON;
+IF OBJECT_ID('tempdb.dbo.#invalid_db_objects') IS NOT NULL
+DROP TABLE #invalid_db_objects
+ 
+CREATE TABLE #invalid_db_objects (
+  invalid_object_id INT PRIMARY KEY
+, invalid_obj_name NVARCHAR(1000)
+, custom_error_message NVARCHAR(3000) NOT NULL
+, invalid_obj_type CHAR(2) NOT NULL
+)
+ 
+INSERT INTO #invalid_db_objects (invalid_object_id, invalid_obj_name, custom_error_message, invalid_obj_type)
+SELECT
+  cte.referencing_id
+, obj_name = QUOTENAME(SCHEMA_NAME(all_object.[schema_id])) + '.' + QUOTENAME(all_object.name) ,
+   'Invalid object name ''' + cte.obj_name + ''''   
+   ,all_object.[type]
+FROM ( SELECT
+      sed.referencing_id
+    , obj_name = COALESCE(sed.referenced_schema_name + '.', '') + sed.referenced_entity_name
+FROM sys.sql_expression_dependencies sed
+WHERE sed.is_ambiguous = 0    AND sed.referenced_id IS NULL
+
+) cte
+JOIN sys.objects all_object ON cte.referencing_id = all_object.[object_id]
+
+SELECT invalid_obj_name [Invalid OBJECT NAME] , custom_error_message [Error Message], invalid_obj_type [Object Type] FROM #invalid_db_objects order by 1
+-- Gera o comando recompile baseado no resultado anterior
+
+SELECT 'sp_recompile '+''''+invalid_obj_name+''''+';' FROM #invalid_db_objects order by 1
+
+-- Verifica as dependencias para um referenciado objeto
+SELECT OBJECT_NAME(referencing_id) AS referencing_entity_name,   
+    o.type_desc AS referencing_description,   
+    COALESCE(COL_NAME(referencing_id, referencing_minor_id), '(n/a)') AS referencing_minor_id,   
+    referencing_class_desc,  
+    referenced_server_name, referenced_database_name, referenced_schema_name,  
+    referenced_entity_name,   
+    COALESCE(COL_NAME(referenced_id, referenced_minor_id), '(n/a)') AS referenced_column_name,  
+    is_caller_dependent, is_ambiguous  
+FROM sys.sql_expression_dependencies AS sed  
+INNER JOIN sys.objects AS o ON sed.referencing_id = o.object_id  
+WHERE referencing_id = OBJECT_ID(N'dbo.VWPAYEEADDITIONALATTRIBUT_LOAD');  
+GO 
+
+
+--Testes
+select  object_name(referencing_id) as  'object_name', referenced_entity_name   FROM sys.sql_expression_dependencies where referenced_entity_name='vwPayeeAdditionalAttributes'
+select * FROM sys.sql_expression_dependencies where referenced_entity_name='vwPayeeAdditionalAttributes'
+select name from sys.objects where object_id=2127044599
+select * FROM sys.sql_expression_dependencies where referenced_entity_name='VWPAYEEADDITIONALATTRIBUT_LOAD'
+-------
+
+---------------------------------------------------------------------------------
+-- Para atualizar todas as views que dependem de uma tabela alterada:
+
+SELECT DISTINCT 'EXEC sp_refreshview ''' + name + ''''
+FROM sys.objects AS so
+INNER JOIN sys.sql_expression_dependencies AS sed
+    ON so.object_id = sed.referencing_id
+WHERE so.type = 'V' AND sed.referenced_id = OBJECT_ID('Person.Person');
+
+
+---------------------------------------------------------------------------------
+-- Loog para dar grants wm objetos
+
+DECLARE @SQL NVARCHAR(MAX) = N'';
+
+SELECT @SQL = @SQL + 
+    N'GRANT VIEW DEFINITION ON ' + 
+    QUOTENAME(SCHEMA_NAME(p.schema_id)) + '.' + QUOTENAME(p.name) + 
+    N' TO [MyUser];' + CHAR(13)
+FROM sys.procedures p	where p.name like 'udp_FCC_%' order by p.name;
+
+PRINT @SQL; -- review before running
+
+-- Single Script for All Programmable Objects
+
+DECLARE @UserName SYSNAME = 'MyUser';
+DECLARE @SQL NVARCHAR(MAX) = N'';
+
+-- Stored Procedures
+SELECT @SQL += N'GRANT VIEW DEFINITION ON ' 
+    + QUOTENAME(SCHEMA_NAME(o.schema_id)) + '.' + QUOTENAME(o.name) 
+    + N' TO ' + QUOTENAME(@UserName) + ';' + CHAR(13)
+FROM sys.objects o
+WHERE type IN ('P') -- Stored Procedures
+
+-- Functions (scalar, inline table-valued, multi-statement table-valued)
+SELECT @SQL += N'GRANT VIEW DEFINITION ON ' 
+    + QUOTENAME(SCHEMA_NAME(o.schema_id)) + '.' + QUOTENAME(o.name) 
+    + N' TO ' + QUOTENAME(@UserName) + ';' + CHAR(13)
+FROM sys.objects o
+WHERE type IN ('FN', 'IF', 'TF') -- Functions
+
+-- Views
+SELECT @SQL += N'GRANT VIEW DEFINITION ON ' 
+    + QUOTENAME(SCHEMA_NAME(v.schema_id)) + '.' + QUOTENAME(v.name) 
+    + N' TO ' + QUOTENAME(@UserName) + ';' + CHAR(13)
+FROM sys.views v;
+
+-- Review and execute
+PRINT @SQL;  -- Optional: shows what will run
+Single Script for All Programmable Objects
+sql
+Copy
+Edit
+DECLARE @UserName SYSNAME = 'MyUser';
+DECLARE @SQL NVARCHAR(MAX) = N'';
+
+-- Stored Procedures
+SELECT @SQL += N'GRANT VIEW DEFINITION ON OBJECT::' 
+    + QUOTENAME(SCHEMA_NAME(o.schema_id)) + '.' + QUOTENAME(o.name) 
+    + N' TO ' + QUOTENAME(@UserName) + ';' + CHAR(13)
+FROM sys.objects o
+WHERE type IN ('P') -- Stored Procedures
+
+-- Functions (scalar, inline table-valued, multi-statement table-valued)
+SELECT @SQL += N'GRANT VIEW DEFINITION ON OBJECT::' 
+    + QUOTENAME(SCHEMA_NAME(o.schema_id)) + '.' + QUOTENAME(o.name) 
+    + N' TO ' + QUOTENAME(@UserName) + ';' + CHAR(13)
+FROM sys.objects o
+WHERE type IN ('FN', 'IF', 'TF') -- Functions
+
+-- Views
+SELECT @SQL += N'GRANT VIEW DEFINITION ON OBJECT::' 
+    + QUOTENAME(SCHEMA_NAME(v.schema_id)) + '.' + QUOTENAME(v.name) 
+    + N' TO ' + QUOTENAME(@UserName) + ';' + CHAR(13)
+FROM sys.views v;
+
+-- Review and execute, executar o print e conferir
+PRINT @SQL;  -- Optional: shows what will run
+--EXEC sp_executesql @SQL;
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
