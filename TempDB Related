@@ -1,0 +1,214 @@
+-- List Sessions using TempDB currently.
+--------------------------------------------------------------------------------- 
+https://www.sqlshack.com/monitoring-sql-server-tempdb-with-dynamic-management-views/
+
+use tempdb
+sp_space_used
+--------------------------------------------------------------------------------- 
+Determinar a quantidade de espaço livre de log no tempdb
+
+USE tempdb;  
+GO  
+SELECT 
+(total_log_size_in_bytes - used_log_space_in_bytes)*1.0/1024/1024/1024 AS [free log space in GB]  
+FROM sys.dm_db_log_space_usage; 
+
+---------------------------------------------------------------------------------
+
+SELECT 
+(SUM(unallocated_extent_page_count)*1.0/128) AS [Free space(MB)]
+,(SUM(version_store_reserved_page_count)*1.0/128)  AS [Used Space by VersionStore(MB)]
+,(SUM(internal_object_reserved_page_count)*1.0/128)  AS [Used Space by InternalObjects(MB)]
+,(SUM(user_object_reserved_page_count)*1.0/128)  AS [Used Space by UserObjects(MB)]
+FROM tempdb.sys.dm_db_file_space_usage;
+--------------------------------------------------------------------------------- 
+
+--Finding out who/what is using the tempDB
+
+SELECT
+t1.session_id, 
+(t1.internal_objects_alloc_page_count + task_alloc) as allocated, 
+(t1.internal_objects_dealloc_page_count + task_dealloc) as deallocated,
+qt.text as [Batch Text],
+qp.query_plan as [Execution Plan]
+FROM sys.dm_db_session_space_usage as t1,
+    (select session_id, 
+        sum(internal_objects_alloc_page_count) as task_alloc,
+        sum (internal_objects_dealloc_page_count) as task_dealloc
+        FROM sys.dm_db_task_space_usage group by session_id) as t2,
+    sys.dm_exec_requests t3 
+        cross apply sys.dm_exec_sql_text (t3.sql_handle) as qt
+        cross apply sys.dm_exec_query_plan (t3.plan_handle) as qp
+WHERE t1.session_id = t2.session_id
+AND t1.session_id >50
+AND t1.database_id = DB_ID('tempdb')
+AND t1.session_id = t3.session_id
+ORDER BY allocated DESC;
+
+--
+use tempdb
+go
+
+SELECT
+rtrim(name) as name,
+((size)/128.0) as 'size in MB',
+((size)/128.0) - CAST(FILEPROPERTY(name, 'SpaceUsed') AS int)/128.0 AS AvailableSpaceInMB,((((size)/128.0) -  CAST(FILEPROPERTY(name, 'SpaceUsed') AS int)/128.0) / ((size)/128.0)) * 100 as '% Available',
+filename
+FROM sysfiles
+
+
+--------------------------------------------------------------------------------- 
+--Shirink
+
+-- List tempdb files and sizes
+SELECT name, 
+    file_id, 
+    type_desc, 
+    size * 8 / 1024 [TempdbSizeInMB]
+FROM tempdb.sys.database_files
+ORDER BY type_desc DESC, 
+      file_id;
+	  
+https://www.brentozar.com/archive/2016/02/when-shrinking-tempdb-just-wont-shrink/
+-- DBCC FREEPROCCACHE -- This will clear all the memory cache, use with caution
+
+DBCC SHRINKFILE(logical_filename, size_in_MB)
+DBCC SHRINKDATABASE(tempdb, % free);
+--------------------------------------------------------------------------------- 
+
+
+
+SELECT
+st.dbid AS QueryExecutionContextDBID,
+DB_NAME(st.dbid) AS QueryExecContextDBNAME,
+st.objectid AS ModuleObjectId,
+SUBSTRING(st.TEXT,
+dmv_er.statement_start_offset/2 + 1,
+(CASE WHEN dmv_er.statement_end_offset = -1
+THEN LEN(CONVERT(NVARCHAR(MAX),st.TEXT)) * 2
+ELSE dmv_er.statement_end_offset
+END - dmv_er.statement_start_offset)/2) AS Query_Text,
+dmv_tsu.session_id ,
+dmv_tsu.request_id,
+dmv_tsu.exec_context_id,
+(dmv_tsu.user_objects_alloc_page_count - dmv_tsu.user_objects_dealloc_page_count) AS OutStanding_user_objects_page_counts,
+(dmv_tsu.internal_objects_alloc_page_count - dmv_tsu.internal_objects_dealloc_page_count) AS OutStanding_internal_objects_page_counts,
+dmv_er.start_time,
+dmv_er.command,
+dmv_er.open_transaction_count,
+dmv_er.percent_complete,
+dmv_er.estimated_completion_time,
+dmv_er.cpu_time,
+dmv_er.total_elapsed_time,
+dmv_er.reads,dmv_er.writes,
+dmv_er.logical_reads,
+dmv_er.granted_query_memory,
+dmv_es.HOST_NAME,
+dmv_es.login_name,
+dmv_es.program_name
+FROM sys.dm_db_task_space_usage dmv_tsu
+INNER JOIN sys.dm_exec_requests dmv_er
+ON (dmv_tsu.session_id = dmv_er.session_id AND dmv_tsu.request_id = dmv_er.request_id)
+INNER JOIN sys.dm_exec_sessions dmv_es
+ON (dmv_tsu.session_id = dmv_es.session_id)
+CROSS APPLY sys.dm_exec_sql_text(dmv_er.sql_handle) st
+WHERE (dmv_tsu.internal_objects_alloc_page_count + dmv_tsu.user_objects_alloc_page_count) > 0
+ORDER BY (dmv_tsu.user_objects_alloc_page_count - dmv_tsu.user_objects_dealloc_page_count) + (dmv_tsu.internal_objects_alloc_page_count - dmv_tsu.internal_objects_dealloc_page_count) DESC
+------------------------------------------------------------------------------------------
+-- Determining the amount of free space in tempdb
+SELECT SUM(unallocated_extent_page_count) AS [free pages],
+  (SUM(unallocated_extent_page_count)*1.0/128) AS [free space in MB]
+FROM sys.dm_db_file_space_usage;
+-- Determining the amount of space used by the version store
+SELECT SUM(version_store_reserved_page_count) 
+   AS [version store pages used],
+  (SUM(version_store_reserved_page_count)*1.0/128) 
+   AS [version store space in MB]
+FROM sys.dm_db_file_space_usage;
+-- Determining the amount of space used by internal objects
+SELECT SUM(internal_object_reserved_page_count) 
+   AS [internal object pages used],
+  (SUM(internal_object_reserved_page_count)*1.0/128) 
+   AS [internal object space in MB]
+FROM sys.dm_db_file_space_usage;
+-- Determining the amount of space used by user objects
+SELECT SUM(user_object_reserved_page_count) 
+   AS [user object pages used],
+  (SUM(user_object_reserved_page_count)*1.0/128) 
+   AS [user object space in MB]
+FROM sys.dm_db_file_space_usage;
+
+---------------------------------------------------------------------------------------------
+https://www.red-gate.com/simple-talk/databases/sql-server/database-administration-sql-server/mastering-tempdb-managing-tempdb-growth/#:~:text=Uncontrolled%20TempDB%20growth,query%20%E2%80%9Cspills%E2%80%9D%20to%20TempDB.
+
+
+--This script’s query results allow you to clearly identify what space is allocated by a transaction and even capture the query text and its execution plan associated with it.
+
+
+SELECT t1.session_id,
+       t1.request_id,
+       task_alloc_GB = CAST((t1.task_alloc_pages * 8. / 1024. / 1024.) 
+         AS NUMERIC(10, 1)),
+       task_dealloc_GB = CAST((t1.task_dealloc_pages * 
+          8. / 1024. / 1024.) 
+         AS NUMERIC(10, 1)),
+       host = CASE
+                  WHEN t1.session_id <= 50 THEN
+                      'SYS'
+                  ELSE
+                      s1.host_name
+              END,
+       s1.login_name,
+       s1.status,
+       s1.last_request_start_time,
+       s1.last_request_end_time,
+       s1.row_count,
+       s1.transaction_isolation_level,
+       query_text = COALESCE(
+                    (
+                  SELECT SUBSTRING(
+                    text,
+                    t2.statement_start_offset / 2 + 1,
+                    (CASE
+                     WHEN statement_end_offset = -1 THEN
+                        LEN(CONVERT(NVARCHAR(MAX), text)) * 2
+                     ELSE
+                        statement_end_offset
+                     END - t2.statement_start_offset
+                                            ) / 2
+                                        )
+                        FROM sys.dm_exec_sql_text(t2.sql_handle)
+                    ),
+                    'Not currently executing'
+                            ),
+       query_plan =
+       (
+           SELECT query_plan FROM sys.dm_exec_query_plan(t2.plan_handle)
+       )
+FROM
+(
+    SELECT session_id,
+           request_id,
+           task_alloc_pages = SUM(internal_objects_alloc_page_count 
+               + user_objects_alloc_page_count),
+           task_dealloc_pages = SUM(internal_objects_dealloc_page_count 
+                + user_objects_dealloc_page_count)
+    FROM sys.dm_db_task_space_usage
+    GROUP BY session_id,
+             request_id
+) AS t1
+    LEFT JOIN sys.dm_exec_requests AS t2
+        ON t1.session_id = t2.session_id
+           AND t1.request_id = t2.request_id
+    LEFT JOIN sys.dm_exec_sessions AS s1
+        ON t1.session_id = s1.session_id
+-- ignore system unless you suspect there's a problem there
+WHERE t1.session_id > 50 
+ -- ignore this request itself 
+AND t1.session_id <> @@SPID
+ORDER BY t1.task_alloc_pages DESC; 
+GO
+-------------------------------------------------------------------------------------------
+
+
+
