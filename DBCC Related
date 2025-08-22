@@ -1,0 +1,22 @@
+-- DBCC Shirink files
+
+This command moves all data from the specified file to other files within the same filegroup, so that the file becomes completely empty. Afterward, you can safely remove it with ALTER DATABASE ... REMOVE FILE.
+-- if it is the 1st file of the database, it can be removed
+
+DBCC SHRINKFILE (LogicalFileName, EMPTYFILE);
+
+
+--You can check if the file still contains data:
+-- Execute in the context of a database
+
+SELECT file_id, type_desc, name, size
+FROM sys.database_files
+WHERE name = 'LogicalFileName';
+
+
+-- Or, check for pages still in the file:
+
+SELECT COUNT(*) AS PagesInFile
+FROM sys.dm_db_database_page_allocations(DB_ID(), NULL, NULL, NULL, 'DETAILED')
+WHERE allocated_page_file_id = FILE_ID('LogicalFileName');
+
