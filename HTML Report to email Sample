@@ -1,0 +1,356 @@
+-- Gerar report em HTML e mandar por email
+
+DECLARE @HTML NVARCHAR(MAX) = ''
+
+-- HTML Table Header
+SET @HTML = '
+<html>
+<head>
+<style>
+    table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; }
+    th { background-color: white; color: black; padding: 8px; text-align: left; }
+    td { background-color: white; color: green; padding: 8px; }
+</style>
+</head>
+<body>
+<h2>Password Change Report</h2>
+<table border="1">
+    <tr>
+        <th>SafeName</th>
+        <th>ObjectName</th>
+        <th>Address</th>
+        <th>Account</th>
+        <th>LastChangeDate</th>
+        <th>DaysToNextPwdChange</th>
+    </tr>'
+
+-- Append the table rows from the query
+SELECT @HTML = @HTML + 
+    '<tr>' +
+    '<td>' + ISNULL(CAS.CASSafeName, '') + '</td>' +
+    '<td>' + ISNULL(CAF.CAFFileName, '') + '</td>' +
+    '<td>' + ISNULL(CAO1.CAOPObjectPropertyValue, '') + '</td>' +
+    '<td>' + ISNULL(CAO2.CAOPObjectPropertyValue, '') + '</td>' +
+    '<td>' + CONVERT(varchar, DATEADD(S, CONVERT(int,LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01'), 120) + '</td>' +
+    '<td>' + CONVERT(varchar, DATEDIFF(DAY,  GETDATE(), 
+        DATEADD(DAY, CAST(CPS.CAMPMasterPolicySettingValue AS numeric), 
+            CASE
+                WHEN ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01'), 0) >
+                     ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01'), 0)
+                THEN DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01')
+                ELSE DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01')
+            END
+        )
+    ) ) + '</td>' +
+    '</tr>'
+FROM dbo.CASafes AS CAS 
+INNER JOIN dbo.CAFiles AS CAF ON CAS.CASSafeID = CAF.CAFSafeID
+INNER JOIN dbo.CAObjectProperties AS CAO1 ON CAF.CAFSafeID = CAO1.CAOPSafeId AND CAF.CAFFileID = CAO1.CAOPFileId
+INNER JOIN dbo.CAObjectProperties AS CAO2 ON  CAO1.CAOPSafeId = CAO2.CAOPSafeId AND CAO1.CAOPFileId = CAO2.CAOPFileId
+INNER JOIN dbo.CAObjectProperties AS CAO5 ON  CAO1.CAOPSafeId = CAO5.CAOPSafeId AND CAO1.CAOPFileId = CAO5.CAOPFileId
+INNER JOIN dbo.camasterpolicysettings AS CPS ON CAO5.CAOPObjectPropertyValue = CPS.CAMPPolicyName
+LEFT JOIN dbo.CAObjectProperties AS CAO3 ON  CAO1.CAOPSafeId = CAO3.CAOPSafeId AND CAO1.CAOPFileId = CAO3.CAOPFileId AND (CAO3.CAOPObjectPropertyName = 'LastSuccessChange')
+LEFT JOIN dbo.CAObjectProperties AS CAO6 ON  CAO1.CAOPSafeId = CAO6.CAOPSafeId AND CAO1.CAOPFileId = CAO6.CAOPFileId AND (CAO6.CAOPObjectPropertyName = 'LastSuccessReconciliation')
+WHERE     
+    CAO1.CAOPObjectPropertyName = 'Address' AND
+    CAO2.CAOPObjectPropertyName = 'Username' AND
+    CAO5.CAOPObjectPropertyName = 'PolicyID' AND
+    CPS.CAMPMasterPolicySettingName = 'Require password change every X days' AND
+    CAF.CAFDeletionDate IS NULL AND
+    CAS.CASSafeName LIKE '%0102561%' AND
+    DATEDIFF(DAY,  GETDATE(), DATEADD(DAY, CAST(CPS.CAMPMasterPolicySettingValue AS numeric), 
+        CASE
+            WHEN ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01'), 0) >
+                 ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01'), 0)
+            THEN DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01')
+            ELSE DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01')
+        END)) < 45
+
+-- Close HTML
+SET @HTML = @HTML + '</table></body></html>'
+
+-- Output HTML
+SELECT @HTML AS HTMLReport
+
+
+-- Send email
+EXEC msdb.dbo.sp_send_dbmail
+@profile_name = 'DBMail Public Profile',  
+@body = @HTML ,
+@body_format ='HTML',
+@recipients = 'JoseMaria.Galeano8@T-Mobile.com;', 
+@subject = 'TEST CA EMAIL' ;
+
+
+---------------------------------------------------------------------------------------------------------
+-- outro exemplo jogando o resultado para uma #temp e depois fazendo o select formatado com isnull (html nao pode receber valores nulos, senao nao gera o report)
+-- tbm cria um indice para forcar a ordenacao na #temp1
+
+DECLARE @HTML NVARCHAR(MAX) = ''
+
+-- HTML Table Header
+SET @HTML = '
+<html>
+<head>
+<style>
+    table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; }
+    th { background-color: white; color: black; padding: 8px; text-align: left; }
+    td { background-color: white; color: green; padding: 8px; }
+</style>
+</head>
+<body>
+<h2>Password Change Report</h2>
+<table border="1">
+    <tr>
+        <th>SafeName</th>
+        <th>ObjectName</th>
+        <th>Address</th>
+        <th>Account</th>
+        <th>LastChangeDate</th>
+        <th>DaysToNextPwdChange</th>
+    </tr>'
+
+
+SELECT DISTINCT
+        CAS.CASSafeName AS SafeName, CAF.CAFFileName as ObjectName, 
+        CAO1.CAOPObjectPropertyValue AS Address,
+        CAO2.CAOPObjectPropertyValue AS Account,
+        DATEADD(S, CONVERT(int,LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01') AS LastChangeDate,
+        --DATEADD(S, CONVERT(int,LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01') AS LastReconDate,
+        /*CASE
+        WHEN ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01'), 0) > ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01'), 0)
+        THEN DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01')
+        ELSE DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01')
+        END as GreatestValue,*/
+        DATEDIFF(DAY,  GETDATE(), DATEADD(DAY, (cast(CPS.CAMPMasterPolicySettingValue as numeric) -0) ,
+        CASE
+        WHEN ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01'), 0) > ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01'), 0)
+        THEN DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01')
+        ELSE DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01')
+        END )) AS DaysToNextPwdChange
+       -- CAO4.CAOPObjectPropertyValue AS NotificationEmail
+	   into #temp1
+FROM dbo.CASafes AS CAS 
+INNER JOIN dbo.CAFiles AS CAF ON CAS.CASSafeID = CAF.CAFSafeID
+INNER JOIN dbo.CAObjectProperties AS CAO1 ON CAF.CAFSafeID = CAO1.CAOPSafeId AND CAF.CAFFileID = CAO1.CAOPFileId
+INNER JOIN dbo.CAObjectProperties AS CAO2 ON  CAO1.CAOPSafeId = CAO2.CAOPSafeId AND CAO1.CAOPFileId = CAO2.CAOPFileId
+INNER JOIN dbo.CAObjectProperties AS CAO5 ON  CAO1.CAOPSafeId = CAO5.CAOPSafeId AND CAO1.CAOPFileId = CAO5.CAOPFileId
+INNER JOIN dbo.camasterpolicysettings AS CPS ON CAO5.CAOPObjectPropertyValue = CPS.CAMPPolicyName
+LEFT JOIN dbo.CAObjectProperties AS CAO3 ON  CAO1.CAOPSafeId = CAO3.CAOPSafeId AND CAO1.CAOPFileId = CAO3.CAOPFileId AND (CAO3.CAOPObjectPropertyName = 'LastSuccessChange')
+LEFT JOIN dbo.CAObjectProperties AS CAO6 ON  CAO1.CAOPSafeId = CAO6.CAOPSafeId AND CAO1.CAOPFileId = CAO6.CAOPFileId AND (CAO6.CAOPObjectPropertyName = 'LastSuccessReconciliation')
+WHERE     
+    CAO1.CAOPObjectPropertyName = 'Address' AND
+    CAO2.CAOPObjectPropertyName = 'Username' AND
+    CAO5.CAOPObjectPropertyName = 'PolicyID' AND
+    CPS.CAMPMasterPolicySettingName = 'Require password change every X days' AND
+    CAF.CAFDeletionDate IS NULL AND
+    (CAS.CASSafeName like '%0102561%'  or CAS.CASSafeName like '%0104217%' or CAS.CASSafeName like '%0103058%' or CAS.CASSafeName like '%0103542%') AND
+	--CAS.CASSafeName like '%0102561%'  AND
+    DATEDIFF(DAY,  GETDATE(), DATEADD(DAY, CAST(CPS.CAMPMasterPolicySettingValue AS numeric), 
+    CASE
+    WHEN ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01'), 0) > ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01'), 0)
+    THEN DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01')
+    ELSE DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01') END )) < 45
+ORDER BY 6
+ 
+ Create clustered index idx_1 on #temp1 (DaysToNextPwdChange)
+
+	select SafeName, ObjectName, Address, Account, LastChangeDate = isnull(LastChangeDate, ''), DaysToNextPwdChange= isnull(DaysToNextPwdChange, '')
+	from #temp1 t
+	
+
+
+-- Append the table rows from the query
+SELECT @HTML = @HTML +  
+	'<tr>' +
+		'<td>' + SafeName + '</td>' + 
+		'<td>' + ObjectName + '</td>' + 
+		'<td>' + Address + '</td>' + 
+		'<td>' + Account + '</td>' + 
+		'<td>' + isnull(convert(varchar(30),LastChangeDate), '') + '</td>' +  
+		'<td>' + isnull(convert(varchar(10),DaysToNextPwdChange),'') + '</td>' + 
+	'</tr>'
+	from #temp1 t
+	
+
+	drop table #temp1
+	
+-- Close HTML
+SET @HTML = @HTML + '</table></body></html>'
+
+-- Output HTML
+SELECT @HTML AS HTMLReport
+
+
+-- Send email
+EXEC msdb.dbo.sp_send_dbmail
+@profile_name = 'DBMail Public Profile',  
+@body = @HTML ,
+@body_format ='HTML',
+@recipients = 'JoseMaria.Galeano8@T-Mobile.com;', 
+@subject = 'TEST CA EMAIL' ;
+
+
+
+
+--------------------------------------------------------------------------------------------------------------------------
+-- 3a versao sem o create index ordenando direto no resultado HTML
+
+
+DECLARE @HTML NVARCHAR(MAX) = ''
+
+-- HTML Table Header
+SET @HTML = '
+<html>
+<head>
+<style>
+    table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; }
+    th { background-color: white; color: black; padding: 8px; text-align: left; }
+    td { background-color: white; color: green; padding: 8px; }
+</style>
+</head>
+<body>
+<h2>Password Change Report</h2>
+<table border="1">
+    <tr>
+        <th>SafeName</th>
+        <th>ObjectName</th>
+        <th>Address</th>
+        <th>Account</th>
+        <th>LastChangeDate</th>
+        <th>DaysToNextPwdChange</th>
+    </tr>'
+
+
+SELECT DISTINCT
+        CAS.CASSafeName AS SafeName, CAF.CAFFileName as ObjectName, 
+        CAO1.CAOPObjectPropertyValue AS Address,
+        CAO2.CAOPObjectPropertyValue AS Account,
+        DATEADD(S, CONVERT(int,LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01') AS LastChangeDate,
+        --DATEADD(S, CONVERT(int,LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01') AS LastReconDate,
+        /*CASE
+        WHEN ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01'), 0) > ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01'), 0)
+        THEN DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01')
+        ELSE DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01')
+        END as GreatestValue,*/
+        DATEDIFF(DAY,  GETDATE(), DATEADD(DAY, (cast(CPS.CAMPMasterPolicySettingValue as numeric) -0) ,
+        CASE
+        WHEN ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01'), 0) > ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01'), 0)
+        THEN DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01')
+        ELSE DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01')
+        END )) AS DaysToNextPwdChange
+       -- CAO4.CAOPObjectPropertyValue AS NotificationEmail
+	   into #temp1
+FROM dbo.CASafes AS CAS 
+INNER JOIN dbo.CAFiles AS CAF ON CAS.CASSafeID = CAF.CAFSafeID
+INNER JOIN dbo.CAObjectProperties AS CAO1 ON CAF.CAFSafeID = CAO1.CAOPSafeId AND CAF.CAFFileID = CAO1.CAOPFileId
+INNER JOIN dbo.CAObjectProperties AS CAO2 ON  CAO1.CAOPSafeId = CAO2.CAOPSafeId AND CAO1.CAOPFileId = CAO2.CAOPFileId
+INNER JOIN dbo.CAObjectProperties AS CAO5 ON  CAO1.CAOPSafeId = CAO5.CAOPSafeId AND CAO1.CAOPFileId = CAO5.CAOPFileId
+INNER JOIN dbo.camasterpolicysettings AS CPS ON CAO5.CAOPObjectPropertyValue = CPS.CAMPPolicyName
+LEFT JOIN dbo.CAObjectProperties AS CAO3 ON  CAO1.CAOPSafeId = CAO3.CAOPSafeId AND CAO1.CAOPFileId = CAO3.CAOPFileId AND (CAO3.CAOPObjectPropertyName = 'LastSuccessChange')
+LEFT JOIN dbo.CAObjectProperties AS CAO6 ON  CAO1.CAOPSafeId = CAO6.CAOPSafeId AND CAO1.CAOPFileId = CAO6.CAOPFileId AND (CAO6.CAOPObjectPropertyName = 'LastSuccessReconciliation')
+WHERE     
+    CAO1.CAOPObjectPropertyName = 'Address' AND
+    CAO2.CAOPObjectPropertyName = 'Username' AND
+    CAO5.CAOPObjectPropertyName = 'PolicyID' AND
+    CPS.CAMPMasterPolicySettingName = 'Require password change every X days' AND
+    CAF.CAFDeletionDate IS NULL AND
+    (CAS.CASSafeName like '%0102561%'  or CAS.CASSafeName like '%0104217%' or CAS.CASSafeName like '%0103058%' or CAS.CASSafeName like '%0103542%') AND
+	--CAS.CASSafeName like '%0102561%'  AND
+    DATEDIFF(DAY,  GETDATE(), DATEADD(DAY, CAST(CPS.CAMPMasterPolicySettingValue AS numeric), 
+    CASE
+    WHEN ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01'), 0) > ISNULL(DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01'), 0)
+    THEN DATEADD(S, CONVERT(int, LEFT(CAO3.caopobjectpropertyvalue, 10)), '1970-01-01')
+    ELSE DATEADD(S, CONVERT(int, LEFT(CAO6.caopobjectpropertyvalue, 10)), '1970-01-01') END )) < 45
+ORDER BY 6
+ 
+ --Create clustered index idx_1 on #temp1 (DaysToNextPwdChange)
+
+--	select SafeName, ObjectName, Address, Account, LastChangeDate = isnull(LastChangeDate, ''), DaysToNextPwdChange= isnull(DaysToNextPwdChange, '')
+--  from #temp1 t
+	
+
+
+-- Append the table rows from the query
+SELECT @HTML = @HTML +  
+	'<tr>' +
+		'<td>' + SafeName + '</td>' + 
+		'<td>' + ObjectName + '</td>' + 
+		'<td>' + Address + '</td>' + 
+		'<td>' + Account + '</td>' + 
+		'<td>' + isnull(convert(varchar(30),LastChangeDate), '') + '</td>' +  
+		'<td>' + isnull(convert(varchar(10),DaysToNextPwdChange),'') + '</td>' + 
+	'</tr>'
+	from #temp1 t
+	order by DaysToNextPwdChange
+	
+
+	drop table #temp1
+	
+-- Close HTML
+SET @HTML = @HTML + '</table></body></html>'
+
+-- Output HTML
+SELECT @HTML AS HTMLReport
+
+
+-- Send email
+EXEC msdb.dbo.sp_send_dbmail
+@profile_name = 'DBMail Public Profile',  
+@body = @HTML ,
+@body_format ='HTML',
+@recipients = 'JoseMaria.Galeano8@T-Mobile.com;', 
+@subject = 'TEST CA EMAIL' ;
+
+------------------------------------------------------------------------------------------------------------
+-- by Andre
+
+
+DECLARE @body NVARCHAR(MAX)
+DECLARE @bodymessage NVARCHAR(MAX)
+DECLARE @xml1 NVARCHAR(MAX)
+DECLARE @body1 NVARCHAR(MAX)
+ 
+DECLARE @xml3 NVARCHAR(MAX)
+DECLARE @body3 NVARCHAR(MAX)
+ 
+ 
+ 
+declare @total int = 0
+ 
+ 
+--ESSA VAI SER A SUA CONSULTA
+--NOTE QUE TODAS AS COLUNAS QUE VC FOR TRAZAER VC VAI CHAMA-LAS DE TD E SEMPRE APOS UMA COLUNA, VC VAI ADICIONAR UM OUTRA EM BRANCO E SEM NOME
+ 
+SET @xml1 = CAST(( SELECT
+						 status as td ,''
+						,sum(qtd) AS 'td',''
+from #temp
+group by  Status
+order by  status desc
+ 
+ 
+FOR XML PATH('tr'), ELEMENTS ) AS NVARCHAR(MAX))
+ 
+ 
+--AQUI VAI SER O CORPO DO EMAIL
+--NOTE QUE VC VAI DAR O NOME DAS COLUNAS DA TABELA NESTA PARTE DO CODIGO
+--CADA COLUNA EH UMA LINHA TH
+SET @body1 ='<html><body><center><H3>Summary of SQL Alerts  between  ' + convert(varchar(25), @dt_i, 120) + ' and '+ convert(varchar(25), @Dt_f, 120 ) + ' (pst)</H3>
+<H4>'+convert(varchar, @total)+' Alert(s)</H4>
+<H4>Maintenance Alerts are excluded from this report</H4>
+</center>
+<table border = 1>
+ 
+<tr bgcolor="Blue">
+<th><div style=''background-color: Blue;color:white''> Alert Status </div></th> 
+<th><div style=''background-color: Blue;color:white''> Alert Count </div></th>
+ 
+</tr>'  
+ 
+SET @body1 = @body1 + @xml1 +'</table></br></br>'
+SET @bodymessage = @body1 +   '</body></html>'
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------
