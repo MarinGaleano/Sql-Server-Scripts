@@ -1,0 +1,82 @@
+
+
+
+--How to create a linked server to azure database
+
+https://techcommunity.microsoft.com/t5/sql-server-blog/how-to-create-linked-server-from-sql-server-to-azure-sql/ba-p/3037930
+
+
+
+
+-- Linked server exmplo
+-- Antes de criar o linked server tem que configurar a conexao no odbc system dsn, com o nome de fonte de dados
+que o linked server vai usar, neste caso @datasrc=N'AZURESDLCSTORE'
+
+
+USE [master]
+GO
+
+/****** Object:  LinkedServer [AZURESDLCSTORE]    Script Date: 9/27/2024 6:34:34 AM ******/
+EXEC master.dbo.sp_addlinkedserver @server = N'AZURESDLCSTORE', @srvproduct=N'AZURESDLCSTORE', @provider=N'MSDASQL', @datasrc=N'AZURESDLCSTORE'
+ /* For security reasons the linked server remote logins password is changed with ######## */
+EXEC master.dbo.sp_addlinkedsrvlogin @rmtsrvname=N'AZURESDLCSTORE',@useself=N'False',@locallogin=NULL,@rmtuser=N'SQL_PRD_CSR_Report@t-mobile.com',@rmtpassword='########'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'collation compatible', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'data access', @optvalue=N'true'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'dist', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'pub', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'rpc', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'rpc out', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'sub', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'connect timeout', @optvalue=N'0'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'collation name', @optvalue=null
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'lazy schema validation', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'query timeout', @optvalue=N'0'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'use remote collation', @optvalue=N'true'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'AZURESDLCSTORE', @optname=N'remote proc transaction promotion', @optvalue=N'true'
+GO
+
+
+----------------------------------------------------------------------------------------------------
+--How to create a linked server to azure database
+
+https://techcommunity.microsoft.com/t5/sql-server-blog/how-to-create-linked-server-from-sql-server-to-azure-sql/ba-p/3037930
+
+-- Test linked server
+declare @srvr nvarchar(128), @retval int;
+set @srvr = 'my_linked_srvr';
+begin try
+    exec @retval = sys.sp_testlinkedserver @srvr;
+end try
+begin catch
+    set @retval = sign(@@error);
+end catch;
+if @retval <> 0
+  raiserror('Unable to connect to server. This operation will be tried later!', 16, 2 );
+  
+  
