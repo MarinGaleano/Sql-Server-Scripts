@@ -1,0 +1,744 @@
+---------------------------------------------------------------------------------
+-- User access request
+Hi Christina,
+
+Your NTID no longer exists on the database server and we can no longer configure access to individual user on 
+Sql Server database. Access to Sql server databases are now through AD groups. 
+
+You need to go after your manager and ask for the AD group that is associated to that Sql database server or application. With
+this group you go to compass (https://compass.t-mobile.com/compass?id=sc_cat_item&table=sc_cat_item&sys_id=e3198d866fe58200fd9277f16a3ee415&recordUrl=com.glideapp.servicecatalog_cat_item_view.do%3Fv%3D1&sysparm_id=e3198d866fe58200fd9277f16a3ee415) to request access to this group.
+
+If the AD group dos not exist only your manager can create one.
+-----------------------
+Veja aqui:
+
+C:\Users\JGalean8\OneDrive - T-Mobile USA\Documents\TMO\SqlServer\Scripts\Request Access.docx
+
+----------------------------------------------------------------------------------
+--How to find the date a login password was last changed
+
+SELECT LOGINPROPERTY('YourLoginName', 'PasswordLastSetTime');
+----------------------------------------------------------------------------------
+--List sysadmins 
+
+USE master
+GO
+
+SELECT DISTINCT 
+        p.name AS [loginname] ,
+        --p.type,
+        p.type_desc ,
+        p.is_disabled,
+        s.sysadmin,
+        sp.permission_name
+FROM sys.server_principals p
+INNER JOIN sys.syslogins s ON p.sid = s.sid
+INNER JOIN sys.server_permissions sp ON p.principal_id = sp.grantee_principal_id
+WHERE p.type_desc IN ('SQL_LOGIN', 'WINDOWS_LOGIN', 'WINDOWS_GROUP')
+    -- Logins that are not process logins
+    AND p.name NOT LIKE '##%'
+ORDER BY p.name
+GO
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- List users e privileges on each database
+/*
+Security Audit Report
+1) List all access provisioned to a SQL user or Windows user/group directly
+2) List all access provisioned to a SQL user or Windows user/group through a database or application role
+3) List all access provisioned to the public role
+
+Columns Returned:
+UserType        : Value will be either 'SQL User', 'Windows User', or 'Windows Group'.
+                  This reflects the type of user/group defined for the SQL Server account.
+DatabaseUserName: Name of the associated user as defined in the database user account.  The database user may not be the
+                  same as the server user.
+LoginName       : SQL or Windows/Active Directory user account.  This could also be an Active Directory group.
+Role            : The role name.  This will be null if the associated permissions to the object are defined at directly
+                  on the user account, otherwise this will be the name of the role that the user is a member of.
+PermissionType  : Type of permissions the user/role has on an object. Examples could include CONNECT, EXECUTE, SELECT
+                  DELETE, INSERT, ALTER, CONTROL, TAKE OWNERSHIP, VIEW DEFINITION, etc.
+                  This value may not be populated for all roles.  Some built in roles have implicit permission
+                  definitions.
+PermissionState : Reflects the state of the permission type, examples could include GRANT, DENY, etc.
+                  This value may not be populated for all roles.  Some built in roles have implicit permission
+                  definitions.
+ObjectType      : Type of object the user/role is assigned permissions on.  Examples could include USER_TABLE,
+                  SQL_SCALAR_FUNCTION, SQL_INLINE_TABLE_VALUED_FUNCTION, SQL_STORED_PROCEDURE, VIEW, etc.
+                  This value may not be populated for all roles.  Some built in roles have implicit permission
+                  definitions.
+Schema          : Name of the schema the object is in.
+ObjectName      : Name of the object that the user/role is assigned permissions on.
+                  This value may not be populated for all roles.  Some built in roles have implicit permission
+                  definitions.
+ColumnName      : Name of the column of the object that the user/role is assigned permissions on. This value
+                  is only populated if the object is a table, view or a table value function.
+*/
+
+    --1) List all access provisioned to a SQL user or Windows user/group directly
+	--getdate() as Date, @@servername, db_name() as DBName
+    SELECT getdate() as Date, @@servername as Servername, db_name() as DBName,
+        [UserType] = CASE princ.[type]
+                         WHEN 'S' THEN 'SQL User'
+                         WHEN 'U' THEN 'Windows User'
+                         WHEN 'G' THEN 'Windows Group'
+                     END,
+        [DatabaseUserName] = princ.[name],
+        [LoginName]        = ulogin.[name],
+        [Role]             = NULL,
+        [PermissionType]   = perm.[permission_name],
+        [PermissionState]  = perm.[state_desc],
+        [ObjectType] = CASE perm.[class]
+                           WHEN 1 THEN obj.[type_desc]        -- Schema-contained objects
+                           ELSE perm.[class_desc]             -- Higher-level objects
+                       END,
+        [Schema] = objschem.[name],
+        [ObjectName] = CASE perm.[class]
+                           WHEN 3 THEN permschem.[name]       -- Schemas
+                           WHEN 4 THEN imp.[name]             -- Impersonations
+                           ELSE OBJECT_NAME(perm.[major_id])  -- General objects
+                       END,
+        [ColumnName] = col.[name]
+    FROM
+        --Database user
+        sys.database_principals            AS princ
+        --Login accounts
+        LEFT JOIN sys.server_principals    AS ulogin    ON ulogin.[sid] = princ.[sid]
+        --Permissions
+        LEFT JOIN sys.database_permissions AS perm      ON perm.[grantee_principal_id] = princ.[principal_id]
+        LEFT JOIN sys.schemas              AS permschem ON permschem.[schema_id] = perm.[major_id]
+        LEFT JOIN sys.objects              AS obj       ON obj.[object_id] = perm.[major_id]
+        LEFT JOIN sys.schemas              AS objschem  ON objschem.[schema_id] = obj.[schema_id]
+        --Table columns
+        LEFT JOIN sys.columns              AS col       ON col.[object_id] = perm.[major_id]
+                                                           AND col.[column_id] = perm.[minor_id]
+        --Impersonations
+        LEFT JOIN sys.database_principals  AS imp       ON imp.[principal_id] = perm.[major_id]
+    WHERE
+        princ.[type] IN ('S','U','G')
+        -- No need for these system accounts
+        AND princ.[name] NOT IN ('sys', 'INFORMATION_SCHEMA')
+
+UNION
+
+    --2) List all access provisioned to a SQL user or Windows user/group through a database or application role
+    SELECT getdate() as Date, @@servername as Servername, db_name() as DBName,
+        [UserType] = CASE membprinc.[type]
+                         WHEN 'S' THEN 'SQL User'
+                         WHEN 'U' THEN 'Windows User'
+                         WHEN 'G' THEN 'Windows Group'
+                     END,
+        [DatabaseUserName] = membprinc.[name],
+        [LoginName]        = ulogin.[name],
+        [Role]             = roleprinc.[name],
+        [PermissionType]   = perm.[permission_name],
+        [PermissionState]  = perm.[state_desc],
+        [ObjectType] = CASE perm.[class]
+                           WHEN 1 THEN obj.[type_desc]        -- Schema-contained objects
+                           ELSE perm.[class_desc]             -- Higher-level objects
+                       END,
+        [Schema] = objschem.[name],
+        [ObjectName] = CASE perm.[class]
+                           WHEN 3 THEN permschem.[name]       -- Schemas
+                           WHEN 4 THEN imp.[name]             -- Impersonations
+                           ELSE OBJECT_NAME(perm.[major_id])  -- General objects
+                       END,
+        [ColumnName] = col.[name]
+    FROM
+        --Role/member associations
+        sys.database_role_members          AS members
+        --Roles
+        JOIN      sys.database_principals  AS roleprinc ON roleprinc.[principal_id] = members.[role_principal_id]
+        --Role members (database users)
+        JOIN      sys.database_principals  AS membprinc ON membprinc.[principal_id] = members.[member_principal_id]
+        --Login accounts
+        LEFT JOIN sys.server_principals    AS ulogin    ON ulogin.[sid] = membprinc.[sid]
+        --Permissions
+        LEFT JOIN sys.database_permissions AS perm      ON perm.[grantee_principal_id] = roleprinc.[principal_id]
+        LEFT JOIN sys.schemas              AS permschem ON permschem.[schema_id] = perm.[major_id]
+        LEFT JOIN sys.objects              AS obj       ON obj.[object_id] = perm.[major_id]
+        LEFT JOIN sys.schemas              AS objschem  ON objschem.[schema_id] = obj.[schema_id]
+        --Table columns
+        LEFT JOIN sys.columns              AS col       ON col.[object_id] = perm.[major_id]
+                                                           AND col.[column_id] = perm.[minor_id]
+        --Impersonations
+        LEFT JOIN sys.database_principals  AS imp       ON imp.[principal_id] = perm.[major_id]
+    WHERE
+        membprinc.[type] IN ('S','U','G')
+        -- No need for these system accounts
+        AND membprinc.[name] NOT IN ('sys', 'INFORMATION_SCHEMA')
+
+UNION
+
+    --3) List all access provisioned to the public role, which everyone gets by default
+    SELECT getdate() as Date, @@servername as Servername, db_name() as DBName,
+        [UserType]         = '{All Users}',
+        [DatabaseUserName] = '{All Users}',
+        [LoginName]        = '{All Users}',
+        [Role]             = roleprinc.[name],
+        [PermissionType]   = perm.[permission_name],
+        [PermissionState]  = perm.[state_desc],
+        [ObjectType] = CASE perm.[class]
+                           WHEN 1 THEN obj.[type_desc]        -- Schema-contained objects
+                           ELSE perm.[class_desc]             -- Higher-level objects
+                       END,
+        [Schema] = objschem.[name],
+        [ObjectName] = CASE perm.[class]
+                           WHEN 3 THEN permschem.[name]       -- Schemas
+                           WHEN 4 THEN imp.[name]             -- Impersonations
+                           ELSE OBJECT_NAME(perm.[major_id])  -- General objects
+                       END,
+        [ColumnName] = col.[name]
+    FROM
+        --Roles
+        sys.database_principals            AS roleprinc
+        --Role permissions
+        LEFT JOIN sys.database_permissions AS perm      ON perm.[grantee_principal_id] = roleprinc.[principal_id]
+        LEFT JOIN sys.schemas              AS permschem ON permschem.[schema_id] = perm.[major_id]
+        --All objects
+        JOIN      sys.objects              AS obj       ON obj.[object_id] = perm.[major_id]
+        LEFT JOIN sys.schemas              AS objschem  ON objschem.[schema_id] = obj.[schema_id]
+        --Table columns
+        LEFT JOIN sys.columns              AS col       ON col.[object_id] = perm.[major_id]
+                                                           AND col.[column_id] = perm.[minor_id]
+        --Impersonations
+        LEFT JOIN sys.database_principals  AS imp       ON imp.[principal_id] = perm.[major_id]
+    WHERE
+        roleprinc.[type] = 'R'
+        AND roleprinc.[name] = 'public'
+        AND obj.[is_ms_shipped] = 0
+
+ORDER BY
+    [UserType],
+    [DatabaseUserName],
+    [LoginName],
+    [Role],
+    [Schema],
+    [ObjectName],
+    [ColumnName],
+    [PermissionType],
+    [PermissionState],
+    [ObjectType]
+--------------------------------------------------------------------------------
+--List all access provisioned to the public role, which everyone gets by default
+    SELECT
+        @@servername ServerName
+        , db_name() DatabaseName
+        , [UserType]         = '{All Users}',
+        [DatabaseUserName] = '{All Users}',
+        [LoginName]        = '{All Users}',
+        [Role]             = roleprinc.[name],
+        [PermissionType]   = perm.[permission_name],
+        [PermissionState]  = perm.[state_desc],
+        [ObjectType] = CASE perm.[class]
+                           WHEN 1 THEN obj.[type_desc]        -- Schema-contained objects
+                           ELSE perm.[class_desc]             -- Higher-level objects
+                       END,
+        [Schema] = objschem.[name],
+        [ObjectName] = CASE perm.[class]
+                           WHEN 3 THEN permschem.[name]       -- Schemas
+                           WHEN 4 THEN imp.[name]             -- Impersonations
+                           ELSE OBJECT_NAME(perm.[major_id])  -- General objects
+                       END,
+        [ColumnName] = col.[name]
+    FROM
+        --Roles
+        sys.database_principals            AS roleprinc
+        --Role permissions
+        LEFT JOIN sys.database_permissions AS perm      ON perm.[grantee_principal_id] = roleprinc.[principal_id]
+        LEFT JOIN sys.schemas              AS permschem ON permschem.[schema_id] = perm.[major_id]
+        --All objects
+        LEFT JOIN sys.objects              AS obj       ON obj.[object_id] = perm.[major_id]
+        LEFT JOIN sys.schemas              AS objschem  ON objschem.[schema_id] = obj.[schema_id]
+        --Table columns
+        LEFT JOIN sys.columns              AS col       ON col.[object_id] = perm.[major_id]
+                                                           AND col.[column_id] = perm.[minor_id]
+        --Impersonations
+        LEFT JOIN sys.database_principals  AS imp       ON imp.[principal_id] = perm.[major_id]
+    WHERE
+        roleprinc.[type] = 'R'
+        AND roleprinc.[name] = 'public'
+        AND isnull(obj.[is_ms_shipped], 0) = 0
+        AND isnull(object_schema_name(perm.[major_id]), '') <> 'sys'
+
+ORDER BY
+    [UserType],
+    [DatabaseUserName],
+    [LoginName],
+    [Role],
+    [Schema],
+    [ObjectName],
+    [ColumnName],
+    [PermissionType],
+    [PermissionState],
+    [ObjectType]
+	
+============================================================================
+--List all effective permissions for user test in database AdventureWorks2019
+EXECUTE AS USER = '<user_name>'
+GO
+USE <databae_name>
+GO
+SELECT * FROM fn_my_permissions(null, 'database'); 
+GO
+SELECT * FROM fn_my_permissions(NULL, 'SERVER'); 
+Go
+
+============================================================================
+	+++++++++++++++++++++++++++++++++++++++++++++++
+	https://stackoverflow.com/questions/59933512/sql-server-find-all-permissions-access-for-users-logins-for-all-databases
+	The first method would be to use a temporary table and execute your permissions script against all databases, like this:
+
+DECLARE @DatabaseName VARCHAR(50);
+DECLARE @SqlCommand NVARCHAR(MAX);
+DECLARE @DatabaseUserName VARCHAR(50); -- ='user'
+DECLARE @LoginName VARCHAR(50); -- ='login'
+
+CREATE TABLE #TEMP_OVERVIEW
+(
+  DatabaseName     VARCHAR(128)  NOT NULL
+, UserType         VARCHAR(13)   NULL
+, DatabaseUserName NVARCHAR(128) NOT NULL
+, LoginName        NVARCHAR(128) NULL
+, Role             NVARCHAR(128) NULL
+, PermissionType   NVARCHAR(128) NULL
+, PermissionState  NVARCHAR(60)  NULL
+, ObjectType       NVARCHAR(60)  NULL
+, [Schema]         sys.sysname   NULL
+, ObjectName       NVARCHAR(128) NULL
+, ColumnName       sys.sysname   NULL
+);
+
+DECLARE db_cursor CURSOR LOCAL FAST_FORWARD FOR
+SELECT
+      name
+FROM  master.sys.databases
+WHERE name NOT IN ('master', 'msdb', 'model', 'tempdb')
+      AND state_desc = 'online';
+
+OPEN db_cursor;
+
+FETCH NEXT FROM db_cursor
+INTO
+  @DatabaseName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+  SELECT
+    @SqlCommand = N'USE ' + @DatabaseName + N';' + N'
+INSERT INTO #TEMP_OVERVIEW
+SELECT '''        + @DatabaseName + N''', t.*
+FROM (
+
+...Insert your script here...
+
+) AS t
+' ;
+
+  EXEC sp_executesql @SqlCommand;
+
+  FETCH NEXT FROM db_cursor
+  INTO
+    @DatabaseName;
+END;
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+SELECT
+      *
+FROM  #TEMP_OVERVIEW
+WHERE DatabaseUserName = @DatabaseUserName
+      AND LoginName = @LoginName;
+
+DROP TABLE #TEMP_OVERVIEW;
+
+-----------------------------------------------------------------------------
+ -- para listar os grupos e usuãrios do servidor
+ SELECT
+          CASE
+           WHEN SSPs2.name IS NULL THEN 'Public'
+           ELSE SSPs2.name
+          END AS 'Role Name',
+          SSPs.name AS 'Login Name',
+          Case SSPs.is_disabled
+           When 0 Then '0 – Enable'
+           When 1 Then '1 – Disable'
+          End AS 'Login Status',
+          SSPs.type_desc AS 'Login Type'
+FROM sys.server_principals SSPs
+  LEFT JOIN sys.server_role_members SSRM ON SSPs.principal_id  = SSRM.member_principal_id
+  LEFT JOIN sys.server_principals SSPs2 ON SSRM.role_principal_id = SSPs2.principal_id
+  WHERE SSPs2.name IS NOT NULL
+	OR SSPs.type_desc <> 'CERTIFICATE_MAPPED_LOGIN'
+	AND SSPs.type_desc <> 'SERVER_ROLE'
+	AND SSPs.name NOT LIKE 'NT %'
+	AND SSPs2.name IS NULL
+ORDER BY SSPs2.name DESC, SSPs.name
+
+-- Para gerar o comando xp_logininfo e listar grupos de windows e usuários nesses grupos:
+SELECT
+          CASE
+           WHEN SSPs2.name IS NULL THEN 'Public'
+           ELSE SSPs2.name
+          END AS 'Role Name',
+          SSPs.name AS 'Login Name',
+          Case SSPs.is_disabled
+           When 0 Then '0 – Enable'
+           When 1 Then '1 – Disable'
+          End AS 'Login Status',
+          SSPs.type_desc AS 'Login Type',
+		  Case SSPs.type_desc
+           When 'WINDOWS_GROUP' Then 'Exec xp_logininfo ''' +  SSPs.name+''''+','+''''+'members'+'''; '
+          End AS 'Query Windows group'
+FROM sys.server_principals SSPs
+  LEFT JOIN sys.server_role_members SSRM ON SSPs.principal_id  = SSRM.member_principal_id
+  LEFT JOIN sys.server_principals SSPs2 ON SSRM.role_principal_id = SSPs2.principal_id
+    WHERE SSPs.type_desc ='WINDOWS_GROUP'
+ORDER BY 3
+
+
+---------------------------------------------------------------------------------------
+-- Job to grant temporary sysadmin by Andre
+
+USE [msdb]
+GO
+
+/****** Object:  Job [DBA - GrantTemporary Sysadmin]    Script Date: 1/1/2025 5:21:05 AM ******/
+BEGIN TRANSACTION
+DECLARE @ReturnCode INT
+SELECT @ReturnCode = 0
+/****** Object:  JobCategory [[Uncategorized (Local)]]    Script Date: 1/1/2025 5:21:05 AM ******/
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'[Uncategorized (Local)]' AND category_class=1)
+BEGIN
+EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'[Uncategorized (Local)]'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+
+END
+
+DECLARE @jobId BINARY(16)
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'DBA - GrantTemporary Sysadmin', 
+		@enabled=1, 
+		@notify_level_eventlog=0, 
+		@notify_level_email=0, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'related with tickets: SCTASK10566611, SCTASK10566612, SCTASK10566613 ... sysadmin will be revoked on january 20', 
+		@category_name=N'[Uncategorized (Local)]', 
+		@owner_login_name=N'GSM1900\ADM_AJunior1', @job_id = @jobId OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [first]    Script Date: 1/1/2025 5:21:05 AM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'first', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'TSQL', 
+		@command=N'ALTER SERVER ROLE [sysadmin] ADD MEMBER [GSM1900\CRSpectrumTeam@T-Mobile.com]', 
+		@database_name=N'master', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule @job_id=@jobId, @name=N'Agenda', 
+		@enabled=1, 
+		@freq_type=1, 
+		@freq_interval=0, 
+		@freq_subday_type=0, 
+		@freq_subday_interval=0, 
+		@freq_relative_interval=0, 
+		@freq_recurrence_factor=0, 
+		@active_start_date=20250106, 
+		@active_end_date=99991231, 
+		@active_start_time=0, 
+		@active_end_time=235959, 
+		@schedule_uid=N'6c68486c-0149-419c-959a-7ec386e49e81'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+COMMIT TRANSACTION
+GOTO EndSave
+QuitWithRollback:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave:
+GO
+
+
+
+-- Job to revoke temporary sysadmin by Andre
+
+USE [msdb]
+GO
+
+/****** Object:  Job [DBA - Revoke Temporary Sysadmin]    Script Date: 1/1/2025 5:23:46 AM ******/
+BEGIN TRANSACTION
+DECLARE @ReturnCode INT
+SELECT @ReturnCode = 0
+/****** Object:  JobCategory [[Uncategorized (Local)]]    Script Date: 1/1/2025 5:23:46 AM ******/
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'[Uncategorized (Local)]' AND category_class=1)
+BEGIN
+EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'[Uncategorized (Local)]'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+
+END
+
+DECLARE @jobId BINARY(16)
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'DBA - Revoke Temporary Sysadmin', 
+		@enabled=1, 
+		@notify_level_eventlog=0, 
+		@notify_level_email=0, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'related with tickets: SCTASK10566611, SCTASK10566612, SCTASK10566613 ... sysadmin will be revoked on january 20', 
+		@category_name=N'[Uncategorized (Local)]', 
+		@owner_login_name=N'GSM1900\ADM_AJunior1', @job_id = @jobId OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [first]    Script Date: 1/1/2025 5:23:46 AM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'first', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'TSQL', 
+		@command=N'ALTER SERVER ROLE [sysadmin] DROP MEMBER [GSM1900\CRSpectrumTeam@T-Mobile.com]', 
+		@database_name=N'master', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule @job_id=@jobId, @name=N'Agenda', 
+		@enabled=1, 
+		@freq_type=1, 
+		@freq_interval=0, 
+		@freq_subday_type=0, 
+		@freq_subday_interval=0, 
+		@freq_relative_interval=0, 
+		@freq_recurrence_factor=0, 
+		@active_start_date=20250120, 
+		@active_end_date=99991231, 
+		@active_start_time=0, 
+		@active_end_time=235959, 
+		@schedule_uid=N'560820f5-3b8f-46e0-9abe-04cbffea5222'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+COMMIT TRANSACTION
+GOTO EndSave
+QuitWithRollback:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave:
+GO
+
+---------------------------------------------------------------------------------------------------------------------
+--Para gerar o script de cracao dos usuários no banco dedados, roles e grantes nas roles e grant demais privilegios
+
+/*
+
+This script will script the role members for all roles on the database.
+This is useful for scripting permissions in a development environment before refreshing
+development with a copy of production.  This will allow us to easily ensure
+development permissions are not lost during a prod to dev restoration. 
+Author: S. Kusen
+Updates:
+2015-06-30: 
+1. Re-numbered all sections based on additional updates being added inline.
+2. Added sections 8, 8.1; From Eddict, user defined types needed to be added.
+3. Added sections 4, 4.1; From nhaberl, for orphaned users mapping (if logins don't exist, they will not be created by this script).
+4. Updated section 3.1; From nhaberl, updated to include a default schema of dbo.
+2014-07-25: Fix pointed out by virgo for where logins are mapped to users that are a different name.  Changed ***+ ' FOR LOGIN ' + QUOTENAME([name]) +*** to ***+ ' FOR LOGIN ' + QUOTENAME(suser_sname([sid])) +***.
+2014-01-24: Updated to account for 2012 contained db users
+2012-05-14: Incorporated a fix pointed out by aruopna for Schema-level permissions.
+2010-01-20: Turned statements into a cursor and then using print statements to make it easier to 
+copy/paste into a query window.
+Added support for schema level permissions
+Thanks to wsoranno@winona.edu and choffman for the recommendations.
+*/
+DECLARE 
+    @sql VARCHAR(2048)
+    ,@sort INT
+DECLARE tmp CURSOR FOR
+/*********************************************//*********   DB CONTEXT STATEMENT    *********//*********************************************/SELECT '-- [-- DB CONTEXT --] --' AS [-- SQL STATEMENTS --],
+1 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT 'USE' + SPACE(1) + QUOTENAME(DB_NAME()) AS [-- SQL STATEMENTS --],
+1.1 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT '' AS [-- SQL STATEMENTS --],
+2 AS [-- RESULT ORDER HOLDER --]
+UNION
+/*********************************************//*********     DB USER CREATION      *********//*********************************************/
+SELECT '-- [-- DB USERS --] --' AS [-- SQL STATEMENTS --],
+3 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT 
+CASE WHEN rm.authentication_type IN (2, 0) /* 2=contained database user with password, 0 =user without login; create users without logins*/ THEN ('IF NOT EXISTS (SELECT [name] FROM sys.database_principals WHERE [name] = ' + SPACE(1) + '''' + [name] + '''' + ') BEGIN CREATE USER ' + SPACE(1) + QUOTENAME([name]) + ' WITHOUT LOGIN WITH DEFAULT_SCHEMA = ' + QUOTENAME([default_schema_name]) + SPACE(1) + ', SID = ' + CONVERT(varchar(1000), sid) + SPACE(1) + ' END; ')
+ELSE ('IF NOT EXISTS (SELECT [name] FROM sys.database_principals WHERE [name] = ' + SPACE(1) + '''' + [name] + '''' + ') BEGIN CREATE USER ' + SPACE(1) + QUOTENAME([name]) + ' FOR LOGIN ' + QUOTENAME(suser_sname([sid])) + ' WITH DEFAULT_SCHEMA = ' + QUOTENAME(ISNULL([default_schema_name], 'dbo')) + SPACE(1) + 'END; ') 
+END AS [-- SQL STATEMENTS --],
+3.1 AS [-- RESULT ORDER HOLDER --]
+FROM sys.database_principals AS rm
+WHERE [type] IN ('U', 'S', 'G') -- windows users, sql users, windows groups
+UNION
+/*********************************************//*********    MAP ORPHANED USERS     *********//*********************************************/
+SELECT '-- [-- ORPHANED USERS --] --' AS [-- SQL STATEMENTS --],
+4 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT 'ALTER USER [' + rm.name + '] WITH LOGIN = [' + rm.name + ']',
+4.1 AS [-- RESULT ORDER HOLDER --]
+FROM sys.database_principals AS rm
+Inner JOIN sys.server_principals as sp
+ON rm.name = sp.name  COLLATE DATABASE_DEFAULT and rm.sid <> sp.sid 
+WHERE rm.[type] IN ('U', 'S', 'G') -- windows users, sql users, windows groups
+AND rm.name NOT IN ('dbo', 'guest', 'INFORMATION_SCHEMA', 'sys', 'MS_DataCollectorInternalUser')
+UNION
+/*********************************************//*********    DB ROLE PERMISSIONS    *********//*********************************************/SELECT '-- [-- DB ROLES --] --' AS [-- SQL STATEMENTS --],
+5 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT 'EXEC sp_addrolemember @rolename ='
++ SPACE(1) + QUOTENAME(USER_NAME(rm.role_principal_id), '''') + ', @membername =' + SPACE(1) + QUOTENAME(USER_NAME(rm.member_principal_id), '''') AS [-- SQL STATEMENTS --],
+5.1 AS [-- RESULT ORDER HOLDER --]
+FROM sys.database_role_members AS rm
+WHERE USER_NAME(rm.member_principal_id) IN ( 
+--get user names on the database
+SELECT [name]
+FROM sys.database_principals
+WHERE [principal_id] > 4 -- 0 to 4 are system users/schemas
+and [type] IN ('G', 'S', 'U') -- S = SQL user, U = Windows user, G = Windows group
+)
+--ORDER BY rm.role_principal_id ASC
+UNION
+SELECT '' AS [-- SQL STATEMENTS --],
+7 AS [-- RESULT ORDER HOLDER --]
+UNION
+/*********************************************//*********  OBJECT LEVEL PERMISSIONS *********//*********************************************/SELECT '-- [-- OBJECT LEVEL PERMISSIONS --] --' AS [-- SQL STATEMENTS --],
+7.1 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT CASE 
+WHEN perm.state <> 'W' THEN perm.state_desc 
+ELSE 'GRANT'
+END
++ SPACE(1) + perm.permission_name + SPACE(1) + 'ON ' + QUOTENAME(SCHEMA_NAME(obj.schema_id)) + '.' + QUOTENAME(obj.name) --select, execute, etc on specific objects
++ CASE
+WHEN cl.column_id IS NULL THEN SPACE(0)
+ELSE '(' + QUOTENAME(cl.name) + ')'
+END
++ SPACE(1) + 'TO' + SPACE(1) + QUOTENAME(USER_NAME(usr.principal_id)) COLLATE database_default
++ CASE 
+WHEN perm.state <> 'W' THEN SPACE(0)
+ELSE SPACE(1) + 'WITH GRANT OPTION'
+END
+AS [-- SQL STATEMENTS --],
+7.2 AS [-- RESULT ORDER HOLDER --]
+FROM 
+sys.database_permissions AS perm
+INNER JOIN
+sys.objects AS obj
+ON perm.major_id = obj.[object_id]
+INNER JOIN
+sys.database_principals AS usr
+ON perm.grantee_principal_id = usr.principal_id
+LEFT JOIN
+sys.columns AS cl
+ON cl.column_id = perm.minor_id AND cl.[object_id] = perm.major_id
+--WHERE usr.name = @OldUser
+--ORDER BY perm.permission_name ASC, perm.state_desc ASC
+UNION
+/*********************************************//*********  TYPE LEVEL PERMISSIONS *********//*********************************************/SELECT '-- [-- TYPE LEVEL PERMISSIONS --] --' AS [-- SQL STATEMENTS --],
+        8 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT  CASE 
+            WHEN perm.state <> 'W' THEN perm.state_desc 
+            ELSE 'GRANT'
+        END
+        + SPACE(1) + perm.permission_name + SPACE(1) + 'ON ' + QUOTENAME(SCHEMA_NAME(tp.schema_id)) + '.' + QUOTENAME(tp.name) --select, execute, etc on specific objects
+        + SPACE(1) + 'TO' + SPACE(1) + QUOTENAME(USER_NAME(usr.principal_id)) COLLATE database_default
+        + CASE 
+                WHEN perm.state <> 'W' THEN SPACE(0)
+                ELSE SPACE(1) + 'WITH GRANT OPTION'
+          END
+            AS [-- SQL STATEMENTS --],
+        8.1 AS [-- RESULT ORDER HOLDER --]
+FROM    
+    sys.database_permissions AS perm
+        INNER JOIN
+    sys.types AS tp
+            ON perm.major_id = tp.user_type_id
+        INNER JOIN
+    sys.database_principals AS usr
+            ON perm.grantee_principal_id = usr.principal_id
+UNION
+SELECT '' AS [-- SQL STATEMENTS --],
+9 AS [-- RESULT ORDER HOLDER --]
+UNION
+/*********************************************//*********    DB LEVEL PERMISSIONS   *********//*********************************************/SELECT '-- [--DB LEVEL PERMISSIONS --] --' AS [-- SQL STATEMENTS --],
+10 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT CASE 
+WHEN perm.state <> 'W' THEN perm.state_desc --W=Grant With Grant Option
+ELSE 'GRANT'
+END
++ SPACE(1) + perm.permission_name --CONNECT, etc
++ SPACE(1) + 'TO' + SPACE(1) + '[' + USER_NAME(usr.principal_id) + ']' COLLATE database_default --TO <user name>
++ CASE 
+WHEN perm.state <> 'W' THEN SPACE(0) 
+ELSE SPACE(1) + 'WITH GRANT OPTION' 
+END
+AS [-- SQL STATEMENTS --],
+10.1 AS [-- RESULT ORDER HOLDER --]
+FROM sys.database_permissions AS perm
+INNER JOIN
+sys.database_principals AS usr
+ON perm.grantee_principal_id = usr.principal_id
+--WHERE usr.name = @OldUser
+WHERE [perm].[major_id] = 0
+AND [usr].[principal_id] > 4 -- 0 to 4 are system users/schemas
+AND [usr].[type] IN ('G', 'S', 'U') -- S = SQL user, U = Windows user, G = Windows group
+UNION
+SELECT '' AS [-- SQL STATEMENTS --],
+11 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT '-- [--DB LEVEL SCHEMA PERMISSIONS --] --' AS [-- SQL STATEMENTS --],
+12 AS [-- RESULT ORDER HOLDER --]
+UNION
+SELECT CASE
+WHEN perm.state <> 'W' THEN perm.state_desc --W=Grant With Grant Option
+ELSE 'GRANT'
+END
++ SPACE(1) + perm.permission_name --CONNECT, etc
++ SPACE(1) + 'ON' + SPACE(1) + class_desc + '::' COLLATE database_default --TO <user name>
++ QUOTENAME(SCHEMA_NAME(major_id))
++ SPACE(1) + 'TO' + SPACE(1) + QUOTENAME(USER_NAME(grantee_principal_id)) COLLATE database_default
++ CASE
+WHEN perm.state <> 'W' THEN SPACE(0)
+ELSE SPACE(1) + 'WITH GRANT OPTION'
+END
+AS [-- SQL STATEMENTS --],
+12.1 AS [-- RESULT ORDER HOLDER --]
+from sys.database_permissions AS perm
+inner join sys.schemas s
+on perm.major_id = s.schema_id
+inner join sys.database_principals dbprin
+on perm.grantee_principal_id = dbprin.principal_id
+WHERE class = 3 --class 3 = schema
+ORDER BY [-- RESULT ORDER HOLDER --]
+OPEN tmp
+FETCH NEXT FROM tmp INTO @sql, @sort
+WHILE @@FETCH_STATUS = 0
+BEGIN
+        PRINT @sql
+        FETCH NEXT FROM tmp INTO @sql, @sort    
+END
+CLOSE tmp
+DEALLOCATE tmp
+----------------------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------------------------------
