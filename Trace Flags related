@@ -1,0 +1,20 @@
+-- DBCC Trace flags
+
+https://learn.microsoft.com/en-us/sql/t-sql/database-console-commands/dbcc-traceon-trace-flags-transact-sql?view=sql-server-ver16
+
+Trace flags are set ON or OFF by using either of the following methods:
+
+Using the DBCC TRACEON and DBCC TRACEOFF commands.
+
+For example, to enable the 2528 trace flag globally, use DBCC TRACEON with the -1 argument: DBCC TRACEON (2528, -1). 
+The effect of enabling a global trace flag with DBCC TRACEON is lost on server restart. To turn off a global trace flag, use DBCC TRACEOFF with the -1 argument.
+
+Using the -T startup option to specify that the trace flag is set on during startup.
+
+The -T startup option enables a trace flag globally. You can't enable a session-level trace flag by using a startup option. 
+This ensures the trace flag remains active after a server restart. For more information about startup options, see Database Engine Service startup options.
+
+At the query level, by using the QUERYTRACEON query hint. The QUERYTRACEON option is only supported for Query Optimizer 
+trace flags documented in the table appearing later in this article.
+
+Use the DBCC TRACESTATUS command to determine which trace flags are currently active.
