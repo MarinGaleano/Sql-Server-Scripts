@@ -1,0 +1,29 @@
+
+-- Check roll back status
+
+sp_who2 113
+
+kill 113 WITH STATUSONLY
+ou
+select session_id, percent_complete , last_wait_type , wait_resource, wait_time, wait_type  
+from sys.dm_exec_requests where status = ‘rollback’
+ou
+select session_id, percent_complete , last_wait_type , wait_resource, wait_time, wait_type, status  
+from sys.dm_exec_requests where session_id=113
+
+
+-- Rollback instructions from Andre
+e entrou em rollback
+ 
+se entrou em rollback nao tem mais nada o q fazer nao
+ 
+o tempo de rollback eh >= ao tempo que o comando estava rodando antes de receber o kill
+ 
+se nao tiver nenhum outro bloqueio atrapalhando essa spid ai...nao tem nada q possamos fazer
+ 
+alias...tem....forcar um reboot do servico do sql resolve
+ 
+mas o risco eh altissimo de corromper a base
+ 
+e como a base do gcoi eh gigante...se corromper vai levar literalmente dias pra restaurar
+ 
