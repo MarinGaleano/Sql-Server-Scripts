@@ -1,0 +1,60 @@
+
+
+This gives detailed space usage per table (manually or looped):
+
+sql
+Copy
+Edit
+EXEC sp_spaceused 'dbo.YourTableName';
+
+To run it for all tables:
+
+sql
+Copy
+Edit
+EXEC sp_MSforeachtable 'EXEC sp_spaceused ''?''';
+Shows: table name, rows, reserved, data, index_size, unused — all in KB.
+
+------------------------------------------------------------------------------------------
+--Use sp_MSforeachdb with sp_spaceused
+This method gives free space per database based on used and unused space in the files.
+
+sql
+Copy
+Edit
+EXEC sp_MSforeachdb 
+'USE [?]; 
+IF DB_ID(''?'') NOT IN (1,2,3,4) 
+BEGIN 
+    PRINT ''Database: ?''
+    EXEC sp_spaceused;
+END'
+
+
+--Query sys.master_files for allocated size and free space
+This gives more precise control and calculation of actual free space within data/log files.
+
+sql
+Copy
+Edit
+SELECT
+    DB_NAME(database_id) AS [Database],
+    type_desc AS [FileType],
+    SUM(size) * 8 / 1024 AS [TotalSizeMB],
+    SUM(size - CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT)) * 8 / 1024 AS [FreeSpaceMB]
+FROM sys.master_files
+GROUP BY database_id, type_desc
+ORDER BY DB_NAME(database_id), type_desc;
+
+--Optional: Show Free % by File
+SELECT
+    DB_NAME(database_id) AS [Database],
+    name AS [LogicalFileName],
+    type_desc AS [FileType],
+    size * 8 / 1024 AS [TotalSizeMB],
+    CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT) * 8 / 1024 AS [UsedSpaceMB],
+    (size - CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT)) * 8 / 1024 AS [FreeSpaceMB],
+    CAST(100.0 * (size - CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT)) / size AS DECIMAL(5,2)) AS [FreePercent]
+FROM sys.master_files
+WHERE database_id > 4
+ORDER BY DB_NAME(database_id), type_desc;
