@@ -1,0 +1,62 @@
+--https://stackoverflow.com/questions/18234982/sql-server-how-to-list-logins-assigned-to-a-credential
+
+--Needed to see how and where Credentials were being used, 
+and that covers not just logins but also proxies as well. I found these two queries together gave me a useful overview:
+
+
+SELECT c.credential_id, c.credential_identity,c.name AS Credential_Name,  p.name AS Proxy_Name, p.enabled, p.description
+FROM master.sys.credentials c
+LEFT JOIN msdb..sysproxies p
+ON  c.credential_id = p.credential_id
+go
+
+SELECT c.credential_id, c.credential_identity, c.name AS Credential_Name,  p.name AS Principal_Name, p.type_desc, p.is_disabled, p.default_database_name
+FROM master.sys.credentials c
+LEFT JOIN master.sys.server_principals p
+ON  c.credential_id = p.credential_id
+go
+-----------------------------------------------------------------------------------------------------
+-- How to find what SQL Jobs are using a specific account as Proxy?
+https://dba.stackexchange.com/questions/137675/how-to-find-what-sql-jobs-are-using-a-specific-account-as-proxy
+
+    -- Search Credentials (shows account for Name)
+
+    use msdb
+    select *
+    from sys.credentials
+
+    --Search Jobs where there is a 'Run As' proxy and get the name of that proxy
+
+    use msdb
+
+    select  sysjobsteps.job_id
+    , sysjobs.name as 'JobName'
+    , sysjobsteps.step_id
+    , sysjobsteps.step_name
+    , sysjobsteps.subsystem
+    , sysjobsteps.last_run_date
+    , sysjobsteps.proxy_id
+    --, sysjobsteps.step_uid
+    , sysproxies.name as 'ProxyName'
+
+
+    from sysjobsteps
+    left join dbo.sysproxies
+     on sysjobsteps.proxy_id = sysproxies.proxy_id
+    left join dbo.sysjobs
+     on sysjobsteps.job_id = sysjobs.job_id
+
+    where sysjobsteps.proxy_id > 0
+	
+-----------------------------------------------------------------------------------------------------
+--Check if proxy is enabled
+
+select * from msdb.dbo.sysproxies
+
+
+--Enable proxy again
+
+EXEC dbo.sp_update_proxy  
+    @proxy_name = 'proxy name',  
+    @enabled = 1;  
+GO  
