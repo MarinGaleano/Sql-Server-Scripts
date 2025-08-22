@@ -1,0 +1,97 @@
+----- verificar se o dba tools est[a instalado:
+Get-InstalledModule -Name "dbatools"
+
+Clonar login com dbatools Example: 
+
+PS C:\> Copy-DbaLogin -LoginRenameHashtable @{ OldLogin = "NewLogin" } -Source Sql01 -Destination Sql01 -Login ORG\OldLogin -ObjectLevel -NewSid
+Clones OldLogin as NewLogin onto the same server, generating a new SID for the login. Also clones object-level permissions.
+
+-------
+OU----
+
+ 1. Copy Database Role Memberships
+sql
+Copy
+Edit
+-- Run in each relevant database
+DECLARE @SourceUser NVARCHAR(128) = 'user1';
+DECLARE @TargetUser NVARCHAR(128) = 'user2';
+
+SELECT 
+    'EXEC sp_addrolemember ''' + dp.name + ''', ''' + @TargetUser + '''' AS GrantRole
+FROM sys.database_role_members drm
+JOIN sys.database_principals dp ON drm.role_principal_id = dp.principal_id
+JOIN sys.database_principals dp2 ON drm.member_principal_id = dp2.principal_id
+WHERE dp2.name = @SourceUser;
+
+
+🔹 2. Copy Database Permissions
+sql
+Copy
+Edit
+-- Run in each relevant database
+DECLARE @SourceUser NVARCHAR(128) = 'user1';
+DECLARE @TargetUser NVARCHAR(128) = 'user2';
+
+-- Object & schema level
+SELECT 
+    'GRANT ' + Nchar(perm.permission_name) +  
+    CASE 
+        WHEN perm.class = 0 THEN ' ' -- Database level
+        WHEN perm.class = 1 THEN ' ON ' + QUOTENAME(OBJECT_SCHEMA_NAME(major_id)) + '.' + QUOTENAME(OBJECT_NAME(major_id))
+        WHEN perm.class = 3 THEN ' ON SCHEMA::' + QUOTENAME(s.name)
+        ELSE ''
+    END +
+    ' TO ' + QUOTENAME(@TargetUser) + 
+    CASE WHEN perm.state_desc = 'GRANT_WITH_GRANT_OPTION' THEN ' WITH GRANT OPTION' ELSE '' END AS GrantStmt
+FROM sys.database_permissions perm
+LEFT JOIN sys.schemas s ON perm.class = 3 AND perm.major_id = s.schema_id
+JOIN sys.database_principals dp ON perm.grantee_principal_id = dp.principal_id
+WHERE dp.name = @SourceUser;
+
+
+🔹 3. Copy Server Role Memberships
+-- Nao está funcionando, mas é facil copiar manualmente
+
+sql
+Copy
+Edit
+-- Run in master database
+DECLARE @SourceLogin NVARCHAR(128) = 'user1';
+DECLARE @TargetLogin NVARCHAR(128) = 'user2';
+
+SELECT 
+    'ALTER SERVER ROLE ' + QUOTENAME(rl.name) + 
+    ' ADD MEMBER ' + QUOTENAME(@TargetLogin) AS AddToServerRole
+FROM sys.server_role_members rm
+JOIN sys.server_principals rl ON rm.role_principal_id = rl.principal_id
+JOIN sys.server_principals m ON rm.member_principal_id = m.principal_id
+WHERE m.name = @SourceLogin;
+
+4. Copy Server-Level Permissions
+sql
+Copy
+Edit
+-- Run in master database
+DECLARE @SourceLogin NVARCHAR(128) = 'user1';
+DECLARE @TargetLogin NVARCHAR(128) = 'user2';
+
+SELECT 
+    'GRANT ' + permission_name + 
+    CASE 
+        WHEN class_desc = 'ENDPOINT' THEN ' ON ENDPOINT::' + QUOTENAME(ep.name)
+        WHEN class_desc = 'LOGIN' THEN ' ON LOGIN::' + QUOTENAME(lg.name)
+        WHEN class_desc = 'SERVER' THEN ''
+        ELSE ' -- Unsupported class: ' + class_desc
+    END +
+    ' TO ' + QUOTENAME(@TargetLogin) + 
+    CASE WHEN state_desc = 'GRANT_WITH_GRANT_OPTION' THEN ' WITH GRANT OPTION' ELSE '' END AS GrantStmt
+FROM sys.server_permissions sp
+JOIN sys.server_principals prm ON sp.grantee_principal_id = prm.principal_id
+LEFT JOIN sys.endpoints ep ON sp.class_desc = 'ENDPOINT' AND sp.major_id = ep.endpoint_id
+LEFT JOIN sys.server_principals lg ON sp.class_desc = 'LOGIN' AND sp.major_id = lg.principal_id
+WHERE prm.name = @SourceLogin;
+
+
+
+
