@@ -1,0 +1,62 @@
+---------------------------------------------------------------------------------
+EXEC sp_whoisactive @find_block_leaders = 1, @sort_order = '[blocked_session_count] DESC' 
+
+--Plano de execucao
+exec sp_WhoIsActive @get_plans = 1
+
+exec master.dbo.sp_WhoIsActive  @sort_order= '[session_id] ASC', @show_sleeping_spids = 2, @get_plans =1, @get_locks = 1 
+
+--sorts the results for blocked_session_count column to check lead blockers and blocked sessions.
+EXEC sp_whoisactive @find_block_leaders = 1, @sort_order = '[blocked_session_count] DESC'
+
+-- sort by cpu consumers
+EXEC sp_whoisactive  @sort_order = '[CPU] DESC', @delta_interval = 1
+
+-- sort by memory 
+EXEC sp_whoisactive  @sort_order = '[used memory]', @delta_interval = 1
+
+-- Filter and wild cards
+EXEC sp_WhoIsActive
+    @filter = '106',               
+    @filter_type = 'session' /*session, program, database, login, host*/;
+
+EXEC sp_WhoIsActive
+    @filter = 'StackOverflow',               
+    @filter_type = 'database' /*session, program, database, login, host*/;
+
+EXEC sp_WhoIsActive
+    @filter = 'CrappyApplication%',               
+    @filter_type = 'program' /*session, program, database, login, host*/;
+
+---------------------------------------------------------------------------------
+
+
+
+---------------------------------------------------------------------------------
+--Executar default 
+EXEC sp_WhoIsActive
+    @filter = '',
+    @filter_type = 'session',
+    @not_filter = '',
+    @not_filter_type = 'session',
+    @show_own_spid = 0,
+    @show_system_spids = 0,
+    @show_sleeping_spids = 1,
+    @get_full_inner_text = 0,
+    @get_plans = 0,
+    @get_outer_command = 0,
+    @get_transaction_info = 0,
+    @get_task_info = 1,
+    @get_locks = 0,
+    @get_avg_time = 0,
+    @get_additional_info = 0,
+    @find_block_leaders = 0,
+    @delta_interval = 0,
+    @output_column_list = '[dd%][session_id][sql_text][sql_command][login_name][wait_info][tasks][tran_log%][cpu%][temp%][block%][reads%][writes%][context%][physical%][query_plan][locks][%]',
+    @sort_order = '[start_time] ASC',
+    @format_output = 1,
+    @destination_table = '',
+    @return_schema = 0,
+    @schema = NULL,
+    @help = 0
+---------------------------------------------------------------------------------
