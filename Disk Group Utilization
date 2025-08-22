@@ -1,0 +1,57 @@
+--Disk group utilization
+
+use master
+go
+BEGIN TRAN
+    DECLARE @dbname varchar(200)
+    CREATE TABLE #tmp_datafiles ([db_name] varchar(200), [file_group] varchar(200), [file_name] varchar(200), [file_type] varchar(4),
+                                 [total_mb] decimal(12,2), [used_mb] decimal(12,2), pct_used varchar(10), [auto_grow] char(1),
+                                 [growth] varchar(64), maxsize varchar(64), [file_path] varchar(300))
+    DECLARE XCursor CURSOR FOR (select name from sysdatabases
+                                where databasepropertyex(name, 'status')='ONLINE'
+                                or databasepropertyex(name, 'status')='RECOVERING'
+                                or databasepropertyex(name, 'status')='SUSPECT'
+                                or databasepropertyex(name, 'status')='EMERGENCY')
+    OPEN XCursor
+    FETCH NEXT FROM XCursor INTO @dbname
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        INSERT INTO #tmp_datafiles EXECUTE ('USE ['+ @dbname +']
+                                            SELECT
+                                                db_name() DB_NAME,
+                                                ISNULL(G.groupname,''LOGFILE'') [FILE_GROUP],
+                                                convert(varchar(32),F.[name]) [FILE_NAME],
+                                                CASE F.[status]
+                                                    WHEN 2 THEN ''Data''
+                                                    WHEN 1048578 THEN ''Data''
+                                                    WHEN 66 THEN ''Log''
+                                                    WHEN 1048642 THEN ''Log''
+                                                END [FILE_TYPE],
+                                                convert(decimal(12,2),((F.size*8)/1024.00)) [TOTAL_MB],
+                                                convert(decimal(12,2),(fileproperty(F.name,''SpaceUsed'')*8)/1024.00) [USED_MB],
+                                                convert(varchar(10),convert(decimal(12,2),((fileproperty(F.name,''SpaceUsed'')*1.00)/(F.size*1.00))*100)) + '' %'' [PCT_USED],
+                                                CASE F.growth WHEN 0 THEN ''N'' ELSE ''Y'' END [AUTOGROW],
+                                                CASE F.growth
+                                                    WHEN 0 THEN ''-''
+                                                ELSE CASE
+                                                        WHEN F.growth <> 0 AND F.[status] in (2,66) THEN convert(varchar(64),convert(decimal(12,2),growth*0.0078125)) + '' MB''
+                                                        WHEN F.growth <> 0 AND F.[status] in (1048578,1048642) THEN convert(varchar(64),growth) + '' %''
+                                                    END
+                                                END [FILE_GROWTH],
+                                                CASE f.growth
+                                                    WHEN  0 THEN convert(varchar(64),convert(decimal(12,2),size*0.0078125))
+                                                ELSE CASE maxsize
+                                                        WHEN -1 THEN ''Unlimited''
+                                                    ELSE convert(varchar(64),convert(decimal(12,2),maxsize*0.0078125))  END
+                                                END as [FILE_MAXSIZE],
+                                                convert(varchar(128),F.[filename]) [FILE_PATH]
+                                            FROM
+                                                sysfiles F LEFT OUTER JOIN sysfilegroups G ON F.groupid = G.groupid
+                                            ')
+        FETCH NEXT FROM XCursor INTO @dbname
+    END
+    SELECT * FROM #tmp_datafiles
+    DROP TABLE #tmp_datafiles
+    CLOSE XCursor
+    DEALLOCATE XCursor
+COMMIT TRAN
