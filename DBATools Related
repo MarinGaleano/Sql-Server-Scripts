@@ -1,0 +1,94 @@
+-- Power shell DBA tools
+-- Rodar a partir dos servidores do merlin
+ppolwmerx00013
+PPOLWMERX00014
+PTTNWMERX00015
+
+
+-- Gets database users - Somente lista os usuários 
+Get-DbaDbUser
+    [-SqlInstance] <DbaInstanceParameter[]>
+    [[-SqlCredential] <PSCredential>]
+    [[-Database] <Object[]>]
+    [[-ExcludeDatabase] <Object[]>]
+    [-ExcludeSystemUser]
+    [[-User] <String[]>]
+    [[-Login] <String[]>]
+    [-EnableException]
+    [<CommonParameters>]
+	
+PS C:\> Get-DbaDbUser -SqlInstance "TCP:dpolwladb0000b,50081" -Database siterra
+
+Get-DbaDbUser -SqlInstance "TCP:dpolwtkca00012,50053" -Database DICMDB03
+
+
+--Exports credentials INCLUDING PASSWORDS, unless specified otherwise, to sql file.
+Export-DbaCredential
+PS C:\> Export-DbaCredential -SqlInstance sql2017 -Path C:\temp\cred.sql
+Nao funciona!!!
+Export-DbaCredential -SqlInstance "TCP:dpolwtkca00012,50053" -FilePath d:\temp\cred
+
+
+
+
+Export-DbaDacPackage
+--Exports database roles to a T-SQL file. Export includes Role creation, object permissions and Schema ownership.
+
+This command is based off of John Eisbrener's post "Fully Script out a MSSQL Database Role"
+Reference: https://dbaeyes.wordpress.com/2013/04/19/fully-script-out-a-mssql-database-role/
+
+--Script to create role and grant privileges to it
+Export-DbaDbRole
+Export-DbaDbRole -SqlInstance "dpolwladb0000b,50081" -Database siterra -FilePath H:\DBA\roles.sql
+Export-DbaDbRole -SqlInstance "TCP:dpolwtkca00012,50053" -Database DICMDB03 -Path d:\temp\roles.sql
+
+Export-DbaDbTableData
+Export-DbaInstance
+Export-DbaLinkedServer
+--Exports Windows and SQL Logins to a T-SQL file. Export includes login, SID, password, default database, default language, 
+server permissions, server roles, db permissions, db roles.
+Export-DbaLogin
+Export-DbaLogin -SqlInstance sql2005 -Path C:\temp\sql2005-logins.sql
+-- Esses aqui funcionan, gera os logins a grants de roles
+Export-DbaLogin -SqlInstance "TCP:dpolwtkca00012,50053" -FilePath d:\temp\logins1
+Export-DbaLogin -SqlInstance "dpolwtkca00012,50053" -Path "d:\temp\"
+
+
+Export-DbaRegServer
+Export-DbaRepServerSetting
+Export-DbaScript
+Export-DbaServerRole
+Export-DbaSpConfigure
+Export-DbaSysDbUserObject
+--Exports users creation and its permissions to a T-SQL file or host. Export includes user, create and add to role(s), database level permissions, object level permissions.
+Export-DbaUser
+
+
+Export-DbaUser -SqlInstance "lpolwtkca00021,50052" -Database PICMDB02 -FilePath H:\SR041331307\users.sql
+Export-DbaUser -SqlInstance "dpolwladb0000b,50081" -Database siterra -FilePath H:\DBA\users.sql
+
+Export-DbaUser -SqlInstance "PPOLWRDCX0000C,50077" -Database siterra -FilePath H:\DBA\users.sql
+Username is azhou.
+
+
+--Find a dbatool command
+PS C:\> Find-DbaCommand "snapshot"
+For lazy typers: finds all commands searching the entire help for "snapshot"
+
+Example: 2
+PS C:\> Find-DbaCommand -Pattern "snapshot"
+For rigorous typers: finds all commands searching the entire help for "snapshot"
+
+Example: 3
+
+PS C:\> Find-DbaCommand -Tag Job
+Finds all commands tagged with "Job"
+
+Example: 4
+PS C:\> Find-DbaCommand -Tag Job,Owner
+Finds all commands tagged with BOTH "Job" and "Owner"
+
+Example: 5
+PS C:\> Find-DbaCommand -Author Chrissy
+Finds every command whose author contains our beloved "Chrissy"
+
