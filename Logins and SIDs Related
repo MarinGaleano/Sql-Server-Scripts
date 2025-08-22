@@ -1,0 +1,478 @@
+-- Logins related
+
+=====================================================================
+Synchronize logins between Availability replicas in SQL Server Always On Availability Groups
+January 21, 2021 by Rajendra Gupta
+
+https://www.sqlshack.com/synchronize-logins-between-availability-replicas-in-sql-server-always-on-availability-group/
+
+OBS: in SQL Always On synchronizes the individual database part of the availability group. It does not synchronize logins, Agent jobs, SSIS packages, linked servers and server configurations. 
+In this part of the article, we explore logins synchronization between primary to secondary replicas.
+
+---------------------------------------------------------------------
+-- script generates a CREATE LOGIN script with password hash
+
+SELECT N'CREATE LOGIN ['+sp.[name]+'] WITH PASSWORD=0x'+
+    CONVERT(nvarchar(max), l.password_hash, 2)+N' HASHED, '+
+    N'SID=0x'+CONVERT(nvarchar(max), sp.[sid], 2)+N';'
+FROM master.sys.server_principals AS sp
+INNER JOIN master.sys.sql_logins AS l ON sp.[sid]=l.[sid]
+WHERE sp.name='SQLAG2User'
+---------------------------------------------------------------------
+
+You can query sys.server_principals to check login and their SID’s
+It returns the Windows, SQL logins, server roles and certificates. Each login has a SID:
+
+select name, sid, type_desc from sys.server_principals order by name;
+
+---------------------------------------------------------------------
+You can query sys.database_principals to get a list of database principals:
+
+select name as [Users], SID, type_desc from sys.database_principals order by name;
+
+---------------------------------------------------------------------
+1- Listar todos os logins de uma instancia
+2- Listar os usuários de banco que nao tem login
+3- Listar os orphaned users e cruzar com o item 2, descartar do item 2 os orphaned users
+
+select name from sys.syslogins order by 1;
+
+--select * from sys.server_principals
+
+--Usuários do banco q nao tem login
+SELECT
+u.name AS [Name],
+'Server[@Name=' + quotename(CAST(
+        serverproperty(N'Servername')
+       AS sysname),'''') + ']' + '/Database[@Name=' + quotename(db_name(),'''') + ']' + '/User[@Name=' + quotename(u.name,'''') + ']' AS [Urn],
+u.create_date AS [CreateDate],
+u.principal_id AS [ID],
+CAST(CASE dp.state WHEN N'G' THEN 1 WHEN 'W' THEN 1 ELSE 0 END AS bit) AS [HasDBAccess]
+FROM
+sys.database_principals AS u
+LEFT OUTER JOIN sys.database_permissions AS dp ON dp.grantee_principal_id = u.principal_id and dp.type = 'CO'
+WHERE
+(u.type in ('U', 'S', 'G', 'C', 'K' ,'E', 'X')) and
+u.name not in (select name from master.sys.syslogins)
+ORDER BY
+[Name] ASC
+
+--list orphaned users in db
+exec sp_change_users_login @Action='Report' ;
+
+
+
+
+---------------------------------------------------------------------
+For example, the following script generates a CREATE LOGIN script with password hash, SID for a login 
+
+SELECT N'CREATE LOGIN ['+sp.[name]+'] WITH PASSWORD=0x'+
+    CONVERT(nvarchar(max), l.password_hash, 2)+N' HASHED, '+
+    N'SID=0x'+CONVERT(nvarchar(max), sp.[sid], 2)+N';'
+FROM master.sys.server_principals AS sp
+INNER JOIN master.sys.sql_logins AS l ON sp.[sid]=l.[sid]
+WHERE sp.name='<LOGIN_NAME_HERE>';
+
+OBS: You do copy this script and execute it on the secondary replica to create the login with SID similar to the primary replica. 
+It matches the SID with the secondary replica database, and your application does not face login issues due to AG failover.
+
+---------------------------------------------------------------------
+Basic Login and databse user ADD:
+
+USE [master]
+GO
+CREATE LOGIN [<LOGIN_NAME_HERE>] WITH PASSWORD=N'<PASSWORD_HERE>', DEFAULT_DATABASE=[<DEFAULT_DATABSE_HERE>], CHECK_EXPIRATION=OFF, CHECK_POLICY=ON
+GO
+USE [<DEFAULT_DATABSE_HERE>]
+GO
+CREATE USER [<LOGIN_NAME_HERE>] FOR LOGIN [<LOGIN_NAME_HERE>]
+GO
+USE [<DEFAULT_DATABSE_HERE>]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [<LOGIN_NAME_HERE>]
+GO 
+
+OBS: If we query the secondary replica for SQL login and database user, we notice different SID’s. It is because the database SID is similar to the primary replica SID. 
+However, we created the login manually on the secondary replica that generates a new SID.
+Due to the difference between the login and user SID, it is an Orphan user. You can use the sp_change_users_login stored procedure to get a list of the orphaned user.
+
+sp_change_users_login 'report'
+----------------------------------------------------------------------
+Use stored procedure sp_help_revlogin and sp_hexadecimal
+
+Microsoft provided the stored procedure sp_help_revlogin to transfer the logins to a different instance. 
+You create the stored procedure, execute on the primary replica, copy the script output on the secondary replica, execute it.
+
+-- Transfer logins and passwords between instances of SQL Server
+https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/security/transfer-logins-passwords-between-instances
+Original product version:   SQL Server
+Original KB number:   918992, 246133
+After you move a database from the instance of SQL Server on server A to the instance of SQL Server on server B, users might be unable to log in to the database on server B.
+
+Transfer logins and passwords to destination server (Server B) using scripts generated on source server (Server A).
+
+1- Create stored procedures that will help generate necessary scripts to transfer logins and their passwords. 
+To do so, connect to Server A using SQL Server Management Studio (SSMS) or any other client tool and run the following script:
+
+USE [master]
+  GO
+  IF OBJECT_ID ('sp_hexadecimal') IS NOT NULL
+  DROP PROCEDURE sp_hexadecimal
+  GO
+  CREATE PROCEDURE [dbo].[sp_hexadecimal]
+  (
+      @binvalue varbinary(256),
+      @hexvalue varchar (514) OUTPUT
+  )
+  AS
+  BEGIN
+      DECLARE @charvalue varchar (514)
+      DECLARE @i int
+      DECLARE @length int
+      DECLARE @hexstring char(16)
+      SELECT @charvalue = '0x'
+      SELECT @i = 1
+      SELECT @length = DATALENGTH (@binvalue)
+      SELECT @hexstring = '0123456789ABCDEF'
+
+      WHILE (@i <= @length)
+      BEGIN
+            DECLARE @tempint int
+            DECLARE @firstint int
+            DECLARE @secondint int
+
+            SELECT @tempint = CONVERT(int, SUBSTRING(@binvalue,@i,1))
+            SELECT @firstint = FLOOR(@tempint/16)
+            SELECT @secondint = @tempint - (@firstint*16)
+            SELECT @charvalue = @charvalue + SUBSTRING(@hexstring, @firstint+1, 1) + SUBSTRING(@hexstring, @secondint+1, 1)
+
+            SELECT @i = @i + 1
+      END 
+      SELECT @hexvalue = @charvalue
+  END
+  go
+  IF OBJECT_ID ('sp_help_revlogin') IS NOT NULL
+  DROP PROCEDURE sp_help_revlogin
+  GO
+  CREATE PROCEDURE [dbo].[sp_help_revlogin]   
+  (
+      @login_name sysname = NULL 
+  )
+  AS
+  BEGIN
+      DECLARE @name                     SYSNAME
+      DECLARE @type                     VARCHAR (1)
+      DECLARE @hasaccess                INT
+      DECLARE @denylogin                INT
+      DECLARE @is_disabled              INT
+      DECLARE @PWD_varbinary            VARBINARY (256)
+      DECLARE @PWD_string               VARCHAR (514)
+      DECLARE @SID_varbinary            VARBINARY (85)
+      DECLARE @SID_string               VARCHAR (514)
+      DECLARE @tmpstr                   VARCHAR (1024)
+      DECLARE @is_policy_checked        VARCHAR (3)
+      DECLARE @is_expiration_checked    VARCHAR (3)
+      Declare @Prefix                   VARCHAR(255)
+      DECLARE @defaultdb                SYSNAME
+      DECLARE @defaultlanguage          SYSNAME     
+      DECLARE @tmpstrRole               VARCHAR (1024)
+
+  IF (@login_name IS NULL)
+  BEGIN
+      DECLARE login_curs CURSOR 
+      FOR 
+          SELECT p.sid, p.name, p.type, p.is_disabled, p.default_database_name, l.hasaccess, l.denylogin, p.default_language_name  
+          FROM  sys.server_principals p 
+          LEFT JOIN sys.syslogins     l ON ( l.name = p.name ) 
+          WHERE p.type IN ( 'S', 'G', 'U' ) 
+          AND p.name <> 'sa'
+          AND p.name not like '##%'
+          ORDER BY p.name
+  END
+  ELSE
+          DECLARE login_curs CURSOR 
+          FOR 
+              SELECT p.sid, p.name, p.type, p.is_disabled, p.default_database_name, l.hasaccess, l.denylogin, p.default_language_name  
+              FROM  sys.server_principals p 
+              LEFT JOIN sys.syslogins        l ON ( l.name = p.name ) 
+              WHERE p.type IN ( 'S', 'G', 'U' ) 
+                AND p.name = @login_name
+              ORDER BY p.name
+
+          OPEN login_curs 
+          FETCH NEXT FROM login_curs INTO @SID_varbinary, @name, @type, @is_disabled, @defaultdb, @hasaccess, @denylogin, @defaultlanguage 
+          IF (@@fetch_status = -1)
+          BEGIN
+                PRINT 'No login(s) found.'
+                CLOSE login_curs
+                DEALLOCATE login_curs
+                RETURN -1
+          END
+
+          SET @tmpstr = '/* sp_help_revlogin script '
+          PRINT @tmpstr
+
+          SET @tmpstr = '** Generated ' + CONVERT (varchar, GETDATE()) + ' on ' + @@SERVERNAME + ' */'
+
+          PRINT @tmpstr
+          PRINT ''
+
+          WHILE (@@fetch_status <> -1)
+          BEGIN
+            IF (@@fetch_status <> -2)
+            BEGIN
+                  PRINT ''
+
+                  SET @tmpstr = '-- Login: ' + @name
+
+                  PRINT @tmpstr
+
+                  SET @tmpstr='IF NOT EXISTS (SELECT * FROM sys.server_principals WHERE name = N'''+@name+''')
+                  BEGIN'
+                  Print @tmpstr 
+
+                  IF (@type IN ( 'G', 'U'))
+                  BEGIN -- NT authenticated account/group 
+                    SET @tmpstr = 'CREATE LOGIN ' + QUOTENAME( @name ) + ' FROM WINDOWS WITH DEFAULT_DATABASE = [' + @defaultdb + ']' + ', DEFAULT_LANGUAGE = [' + @defaultlanguage + ']'
+                  END
+                  ELSE 
+                  BEGIN -- SQL Server authentication
+                          -- obtain password and sid
+                          SET @PWD_varbinary = CAST( LOGINPROPERTY( @name, 'PasswordHash' ) AS varbinary (256) )
+
+                          EXEC sp_hexadecimal @PWD_varbinary, @PWD_string OUT
+                          EXEC sp_hexadecimal @SID_varbinary,@SID_string OUT
+
+                          -- obtain password policy state
+                          SELECT @is_policy_checked     = CASE is_policy_checked WHEN 1 THEN 'ON' WHEN 0 THEN 'OFF' ELSE NULL END 
+                          FROM sys.sql_logins 
+                          WHERE name = @name
+
+                          SELECT @is_expiration_checked = CASE is_expiration_checked WHEN 1 THEN 'ON' WHEN 0 THEN 'OFF' ELSE NULL END 
+                          FROM sys.sql_logins 
+                          WHERE name = @name
+
+                          SET @tmpstr = 'CREATE LOGIN ' + QUOTENAME( @name ) + ' WITH PASSWORD = ' + @PWD_string + ' HASHED, SID = ' 
+                                          + @SID_string + ', DEFAULT_DATABASE = [' + @defaultdb + ']' + ', DEFAULT_LANGUAGE = [' + @defaultlanguage + ']'
+
+                          IF ( @is_policy_checked IS NOT NULL )
+                          BEGIN
+                            SET @tmpstr = @tmpstr + ', CHECK_POLICY = ' + @is_policy_checked
+                          END
+
+                          IF ( @is_expiration_checked IS NOT NULL )
+                          BEGIN
+                            SET @tmpstr = @tmpstr + ', CHECK_EXPIRATION = ' + @is_expiration_checked
+                          END
+          END
+
+          IF (@denylogin = 1)
+          BEGIN -- login is denied access
+              SET @tmpstr = @tmpstr + '; DENY CONNECT SQL TO ' + QUOTENAME( @name )
+          END
+          ELSE IF (@hasaccess = 0)
+          BEGIN -- login exists but does not have access
+              SET @tmpstr = @tmpstr + '; REVOKE CONNECT SQL TO ' + QUOTENAME( @name )
+          END
+          IF (@is_disabled = 1)
+          BEGIN -- login is disabled
+              SET @tmpstr = @tmpstr + '; ALTER LOGIN ' + QUOTENAME( @name ) + ' DISABLE'
+          END 
+
+          SET @Prefix = '
+          EXEC master.dbo.sp_addsrvrolemember @loginame='''
+
+          SET @tmpstrRole=''
+
+          SELECT @tmpstrRole = @tmpstrRole
+              + CASE WHEN sysadmin        = 1 THEN @Prefix + [LoginName] + ''', @rolename=''sysadmin'''        ELSE '' END
+              + CASE WHEN securityadmin   = 1 THEN @Prefix + [LoginName] + ''', @rolename=''securityadmin'''   ELSE '' END
+              + CASE WHEN serveradmin     = 1 THEN @Prefix + [LoginName] + ''', @rolename=''serveradmin'''     ELSE '' END
+              + CASE WHEN setupadmin      = 1 THEN @Prefix + [LoginName] + ''', @rolename=''setupadmin'''      ELSE '' END
+              + CASE WHEN processadmin    = 1 THEN @Prefix + [LoginName] + ''', @rolename=''processadmin'''    ELSE '' END
+              + CASE WHEN diskadmin       = 1 THEN @Prefix + [LoginName] + ''', @rolename=''diskadmin'''       ELSE '' END
+              + CASE WHEN dbcreator       = 1 THEN @Prefix + [LoginName] + ''', @rolename=''dbcreator'''       ELSE '' END
+              + CASE WHEN bulkadmin       = 1 THEN @Prefix + [LoginName] + ''', @rolename=''bulkadmin'''       ELSE '' END
+            FROM (
+                      SELECT CONVERT(VARCHAR(100),SUSER_SNAME(sid)) AS [LoginName],
+                              sysadmin,
+                              securityadmin,
+                              serveradmin,
+                              setupadmin,
+                              processadmin,
+                              diskadmin,
+                              dbcreator,
+                              bulkadmin
+                      FROM sys.syslogins
+                      WHERE (       sysadmin<>0
+                              OR    securityadmin<>0
+                              OR    serveradmin<>0
+                              OR    setupadmin <>0
+                              OR    processadmin <>0
+                              OR    diskadmin<>0
+                              OR    dbcreator<>0
+                              OR    bulkadmin<>0
+                          ) 
+                          AND name=@name 
+                ) L 
+
+              PRINT @tmpstr
+              PRINT @tmpstrRole
+              PRINT 'END'
+          END 
+          FETCH NEXT FROM login_curs INTO @SID_varbinary, @name, @type, @is_disabled, @defaultdb, @hasaccess, @denylogin, @defaultlanguage 
+      END
+      CLOSE login_curs
+      DEALLOCATE login_curs
+      RETURN 0
+  END
+  
+  
+2- In the SSMS query editor, select the Results to Text option.
+3- Run the following statement in the same or a new query window:
+
+SQL> EXEC sp_help_revlogin
+
+The output script that the sp_help_revlogin stored procedure generates is the login script. 
+This login script creates the logins that have the original Security Identifier (SID) and the original password.
+
+4- Connect to Server B using any client tool (like SSMS) and then run the script generated in step 4 (output of sp_helprevlogin) from Server A.
+
+OBS:
+The steps in this article don't transfer the default database information for a particular login. This is because the default database might not always exist on server B. 
+To define the default database for a login, use the ALTER LOGIN statement by passing in the login name and the default database as arguments.
+
+Review the output script carefully. If server A and server B are in different domains, you have to change the output script. 
+Then, you have to replace the original domain name by using the new domain name in the CREATE LOGIN statements. 
+The integrated logins that are granted access in the new domain don't have the same SID as the logins in the original domain. 
+Therefore, users are orphaned from these logins. For more information about how to resolve these orphaned users, see Troubleshoot orphaned users (SQL Server) and ALTER USER.
+If server A and server B are in the same domain, the same SID is used. Therefore, users are unlikely to be orphaned.
+
+Case-insensitive server A and case-sensitive server B: The sort order of server A might be case-insensitive, and the sort order of server B might be case-sensitive. 
+In this case, users must type the passwords in all uppercase letters after you transfer the logins and the passwords to the instance on server B.
+
+Case-sensitive server A and case-insensitive server B: The sort order of server A might be case-sensitive, and the sort order of server B might be case-insensitive. 
+In this case, users can't log in by using the logins and the passwords that you transfer to the instance on server B unless one of the following conditions is true:
+- The original passwords contain no letters.
+- All letters in the original passwords are uppercase letters.
+
+
+-----------------------------------------------------------------------
+Troubleshoot orphaned users (SQL Server)
+
+https://learn.microsoft.com/en-us/sql/sql-server/failover-clusters/troubleshoot-orphaned-users-sql-server?view=sql-server-ver16
+
+Detect Orphaned Users
+To detect orphaned users in SQL Server based on missing SQL Server authentication logins, execute the following statement in the user database:
+
+SELECT dp.type_desc, dp.sid, dp.name AS user_name  
+FROM sys.database_principals AS dp  
+LEFT JOIN sys.server_principals AS sp  
+    ON dp.sid = sp.sid  
+WHERE sp.sid IS NULL  
+    AND dp.authentication_type_desc = 'INSTANCE';
+	
+--For SQL Database and Azure Synapse Analytics - Use the link on the begining of this session - Troubleshoot orphaned users (SQL Server
+
+Resolve an Orphaned User
+In the master database, use the CREATE LOGIN statement with the SID option to recreate a missing login, providing the SID of the database user obtained in the previous section
+
+CREATE LOGIN <login_name>   
+WITH PASSWORD = '<use_a_strong_password_here>',  
+SID = <SID>;
+
+To map an orphaned user to a login which already exists in master, execute the ALTER USER statement in the user database, specifying the login name.
+ALTER USER <user_name> WITH Login = <login_name>;
+
+When you recreate a missing login, the user can access the database using the password provided. Then the user can alter the password of the login account by using the ALTER LOGIN statement.
+ALTER LOGIN <login_name> WITH PASSWORD = '<enterStrongPasswordHere>';
+
+---------------------------------------------------------------------
+--Check users in a security group in SQL Server
+
+EXEC master..xp_logininfo 
+@acctname = 'group',
+@option = 'members'
+
+ou 
+
+EXEC xp_logininfo 'GSM1900\ADM_SQLAdmin', 'members';
+
+ou
+EXEC master..xp_logininfo 
+@acctname = 'GSM1900\ADM_SQLAdmin',
+@option = 'members'
+
+
+-- For a quick view of which groups / roles the current user is a member of;
+
+execute as 'gsm1900\jgalean8'
+go
+
+select
+      [principal_id]
+    , [name]
+    , [type_desc]
+    , is_member(name) as [is_member]
+from [sys].[database_principals]
+where [type] in ('R','G')
+order by [is_member] desc,[type],[name]
+
+------------------------------------------------------------
+Levantar dados de logins e grupos de usuãrios:
+
+-- Listar sysadmins
+SELECT getdate() as date , host_name(), 'sysadmin',  'Name' = sp.NAME
+	,sp.is_disabled AS [Is_disabled]
+FROM sys.server_role_members rm
+	,sys.server_principals sp
+WHERE rm.role_principal_id = SUSER_ID('Sysadmin')
+	AND rm.member_principal_id = sp.principal_id
+	
+-- Listar usuários de um banco de dadosEXEC sp_MSforeachdb '
+IF ''?''  IN (''NCI'')
+BEGIN
+USE [?]
+SELECT  DB_NAME() as database_name, name, type_desc
+FROM [?].sys.database_principals
+END'
+-- Listar usuários de todos os banco de dados de usuários
+EXEC sp_MSforeachdb '
+IF ''?''  NOT IN(''master'', ''model'', ''msdb'', ''tempdb'')
+BEGIN
+USE [?]
+SELECT  DB_NAME() as database_name, name, type_desc
+FROM [?].sys.database_principals
+END'
+
+--Listar menbros de um grupo de ad
+EXEC master..xp_logininfo 
+@acctname = 'GSM1900\ADM_SQLAdmin',
+@option = 'members'
+
+----------------------------------------------------------
+-- Para gerar o comando xplogin info:
+
+SELECT
+          CASE
+           WHEN SSPs2.name IS NULL THEN 'Public'
+           ELSE SSPs2.name
+          END AS 'Role Name',
+          SSPs.name AS 'Login Name',
+          Case SSPs.is_disabled
+           When 0 Then '0 – Enable'
+           When 1 Then '1 – Disable'
+          End AS 'Login Status',
+          SSPs.type_desc AS 'Login Type',
+		  Case SSPs.type_desc
+           When 'WINDOWS_GROUP' Then 'Exec xp_logininfo ''' +  SSPs.name+''''+','+''''+'members'+'''; '
+          End AS 'Query Windows group'
+FROM sys.server_principals SSPs
+  LEFT JOIN sys.server_role_members SSRM ON SSPs.principal_id  = SSRM.member_principal_id
+  LEFT JOIN sys.server_principals SSPs2 ON SSRM.role_principal_id = SSPs2.principal_id
+    WHERE SSPs.type_desc ='WINDOWS_GROUP'
+ORDER BY 3
+
+
+
+
