@@ -1,0 +1,265 @@
+-- Update statistics
+---------------------------------------------------------------------------------
+O procedimento armazenado do sistema sp_updatestats é executado UPDATE STATISTICS em todas as tabelas internas e definidas pelo usuário no banco de dados atual. 
+---------------------------------------------------------------------------------
+
+-- Job [Update Statistics Nigthly - USER_DATABASES] 
+
+USE [msdb]
+GO
+
+/****** Object:  Job [Update Statistics Nigthly - USER_DATABASES]    Script Date: 12/20/2024 12:40:40 PM ******/
+BEGIN TRANSACTION
+DECLARE @ReturnCode INT
+SELECT @ReturnCode = 0
+/****** Object:  JobCategory [Database Maintenance]    Script Date: 12/20/2024 12:40:40 PM ******/
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'Database Maintenance' AND category_class=1)
+BEGIN
+EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'Database Maintenance'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+
+END
+
+DECLARE @jobId BINARY(16)
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'Update Statistics Nigthly - USER_DATABASES', 
+		@enabled=1, 
+		@notify_level_eventlog=2, 
+		@notify_level_email=2, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'Source: https://ola.hallengren.com', 
+		@category_name=N'Database Maintenance', 
+		@owner_login_name=N'CISAdmin', 
+		@notify_email_operator_name=N'SQL DBA', @job_id = @jobId OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [Update Statistics Nigthly - USER_DATABASES]    Script Date: 12/20/2024 12:40:40 PM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'Update Statistics Nigthly - USER_DATABASES', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'TSQL', 
+		@command=N'EXECUTE [dbo].[IndexOptimize]
+@Databases = ''USER_DATABASES'',
+@FragmentationLow = NULL,
+@FragmentationMedium = NULL,
+@FragmentationHigh = NULL,
+@UpdateStatistics = ''ALL'',
+@StatisticsSample = 100,
+@OnlyModifiedStatistics = ''Y'',
+@LogToTable = ''Y''', 
+		@database_name=N'master', 
+		@output_file_name=N'G:\MSSQL15.PEL\MSSQL\Log\UpdateStats_$(ESCAPE_SQUOTE(JOBID))_$(ESCAPE_SQUOTE(STEPID))_$(ESCAPE_SQUOTE(STRTDT))_$(ESCAPE_SQUOTE(STRTTM)).txt', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule @job_id=@jobId, @name=N'Update Stats Nightly', 
+		@enabled=1, 
+		@freq_type=8, 
+		@freq_interval=63, 
+		@freq_subday_type=1, 
+		@freq_subday_interval=0, 
+		@freq_relative_interval=0, 
+		@freq_recurrence_factor=1, 
+		@active_start_date=20220101, 
+		@active_end_date=99991231, 
+		@active_start_time=220000, 
+		@active_end_time=235959, 
+		@schedule_uid=N'90621c9b-2bde-45b6-97a9-57f59144b485'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+COMMIT TRANSACTION
+GOTO EndSave
+QuitWithRollback:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave:
+GO
+
+
+--------------------------------------------------------------------------------
+-- List stats details and update date
+
+USE <database name> 
+GO  
+-- Show statistics details for a index 
+DBCC SHOW_STATISTICS ("_Result1858" , _Result1858_pkey);   
+GO 
+
+-- List statistics name collected for a table
+SELECT * 
+-- using the sys.stats catalog view  
+FROM sys.stats  
+-- for the Sales.SpecialOffer table  
+WHERE object_id = OBJECT_ID('_Result1858');  
+GO
+
+-- List statistics name and update date for a table
+SELECT name AS stats_name,   
+    STATS_DATE(object_id, stats_id) AS statistics_update_date  
+FROM sys.stats   
+WHERE object_id = OBJECT_ID('_Result1858');  
+GO  
+
+--listar as tabelas e datas de statisticas: SELECT 
+    OBJECT_NAME(object_id) AS [ObjectName],
+    [name] AS [StatisticName],
+    STATS_DATE([object_id],[stats_id]) AS [StatisticUpdateDate]
+FROM 
+    sys.stats where stats_id is not null
+	order by StatisticUpdateDate desc;
+	
+---------------------------------------------------------------------------------
+--Job step 1 - Gen script for update statistics having row count >90000000
+sqlcmd -Sdpolwtkca00012\DEV -d DICMDB01 -E -h -1 -s, -W -Q "set nocount on; WITH Table_stats (Table_name, TRowCount) as (SELECT QUOTENAME(SCHEMA_NAME(sOBJ.schema_id)) + '.' + QUOTENAME(sOBJ.name) , SUM(sdmvPTNS.row_count) FROM sys.objects AS sOBJ INNER JOIN sys.dm_db_partition_stats AS sdmvPTNS ON sOBJ.object_id = sdmvPTNS.object_id WHERE sOBJ.type = 'U' AND sOBJ.is_ms_shipped = 0x0 AND sdmvPTNS.index_id < 2 GROUP BY sOBJ.schema_id , sOBJ.name HAVING SUM(sdmvPTNS.row_count) > 90000000) Select 'UPDATE STATISTICS ' + Table_name + ';' from Table_stats " -o "G:\MSSQL15.DEV\MSSQL\Log\Update_Stats_Large_tables_DICMDB01.sql"
+-- Job step2 - Execute script for update statistics
+sqlcmd -Sdpolwtkca00012\DEV -d DICMDB01 -E -h -1 -s, -W -i "G:\MSSQL15.DEV\MSSQL\Log\Update_Stats_Large_tables_DICMDB01.sql"  -o "G:\MSSQL15.DEV\MSSQL\Log\Update_Stats_Large_tables_DICMDB01_log.log"
+---Job creation
+USE [msdb]
+GO
+
+/****** Object:  Job [Update Statistics Large Tables - DICMDB01]    Script Date: 12/25/2024 1:18:29 PM ******/
+BEGIN TRANSACTION
+DECLARE @ReturnCode INT
+SELECT @ReturnCode = 0
+/****** Object:  JobCategory [[Uncategorized (Local)]]    Script Date: 12/25/2024 1:18:29 PM ******/
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'[Uncategorized (Local)]' AND category_class=1)
+BEGIN
+EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'[Uncategorized (Local)]'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+
+END
+
+DECLARE @jobId BINARY(16)
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'Update Statistics Large Tables - DICMDB01', 
+		@enabled=0, 
+		@notify_level_eventlog=0, 
+		@notify_level_email=0, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'No description available.', 
+		@category_name=N'[Uncategorized (Local)]', 
+		@owner_login_name=N'CISAdmin', @job_id = @jobId OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [Gen script for update statistics]    Script Date: 12/25/2024 1:18:29 PM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'Gen script for update statistics', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=4, 
+		@on_success_step_id=2, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'CmdExec', 
+		@command=N'sqlcmd -Sdpolwtkca00012\DEV -d DICMDB01 -E -h -1 -s, -W -Q "set nocount on; WITH Table_stats (Table_name, TRowCount) as (SELECT QUOTENAME(SCHEMA_NAME(sOBJ.schema_id)) + ''.'' + QUOTENAME(sOBJ.name) , SUM(sdmvPTNS.row_count) FROM sys.objects AS sOBJ INNER JOIN sys.dm_db_partition_stats AS sdmvPTNS ON sOBJ.object_id = sdmvPTNS.object_id WHERE sOBJ.type = ''U'' AND sOBJ.is_ms_shipped = 0x0 AND sdmvPTNS.index_id < 2 GROUP BY sOBJ.schema_id , sOBJ.name HAVING SUM(sdmvPTNS.row_count) > 90000000) Select ''UPDATE STATISTICS '' + Table_name + '';'' from Table_stats " -o "G:\MSSQL15.DEV\MSSQL\Log\Update_Stats_Large_tables_DICMDB01.sql"', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [Execute Script for Large Tables  Statistics]    Script Date: 12/25/2024 1:18:29 PM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'Execute Script for Large Tables  Statistics', 
+		@step_id=2, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'CmdExec', 
+		@command=N'sqlcmd -Sdpolwtkca00012\DEV -d DICMDB01 -E -h -1 -s, -W -i "G:\MSSQL15.DEV\MSSQL\Log\Update_Stats_Large_tables_DICMDB01.sql"  -o "G:\MSSQL15.DEV\MSSQL\Log\Update_Stats_Large_tables_DICMDB01_log.log"', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+COMMIT TRANSACTION
+GOTO EndSave
+QuitWithRollback:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave:
+GO
+
+----------------------------------------------
+--Create job for update stats all tables
+
+USE [msdb]
+GO
+
+/****** Object:  Job [Update Statistics Large Tables - DICMDB01]    Script Date: 12/25/2024 1:18:29 PM ******/
+BEGIN TRANSACTION
+DECLARE @ReturnCode INT
+SELECT @ReturnCode = 0
+/****** Object:  JobCategory [[Uncategorized (Local)]]    Script Date: 12/25/2024 1:18:29 PM ******/
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'[Uncategorized (Local)]' AND category_class=1)
+BEGIN
+EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'[Uncategorized (Local)]'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+
+END
+
+DECLARE @jobId BINARY(16)
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'Update Statistics All Tables - DICMDB01', 
+		@enabled=0, 
+		@notify_level_eventlog=0, 
+		@notify_level_email=0, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'No description available.', 
+		@category_name=N'[Uncategorized (Local)]', 
+		@owner_login_name=N'CISAdmin', @job_id = @jobId OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [Gen script for update statistics]    Script Date: 12/25/2024 1:18:29 PM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'Gen script for update statistics', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=4, 
+		@on_success_step_id=2, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'CmdExec', 
+		@command=N'sqlcmd -Sdpolwtkca00012\DEV -d DICMDB01 -E -h -1 -s, -W -Q "set nocount on; WITH Table_stats (Table_name, TRowCount) as (SELECT QUOTENAME(SCHEMA_NAME(sOBJ.schema_id)) + ''.'' + QUOTENAME(sOBJ.name) , SUM(sdmvPTNS.row_count) FROM sys.objects AS sOBJ INNER JOIN sys.dm_db_partition_stats AS sdmvPTNS ON sOBJ.object_id = sdmvPTNS.object_id WHERE sOBJ.type = ''U'' AND sOBJ.is_ms_shipped = 0x0 AND sdmvPTNS.index_id < 2 GROUP BY sOBJ.schema_id , sOBJ.name HAVING SUM(sdmvPTNS.row_count) >=0) Select ''UPDATE STATISTICS '' + Table_name + '';'' from Table_stats " -o "G:\MSSQL15.DEV\MSSQL\Log\Update_Stats_ALL_tables_DICMDB01.sql"', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [Execute Script for Large Tables  Statistics]    Script Date: 12/25/2024 1:18:29 PM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'Execute Script for Large Tables  Statistics', 
+		@step_id=2, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'CmdExec', 
+		@command=N'sqlcmd -Sdpolwtkca00012\DEV -d DICMDB01 -E -h -1 -s, -W -i "G:\MSSQL15.DEV\MSSQL\Log\Update_Stats_ALL_tables_DICMDB01.sql"  -o "G:\MSSQL15.DEV\MSSQL\Log\Update_Stats_ALL_tables_DICMDB01_log.log"', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+COMMIT TRANSACTION
+GOTO EndSave
+QuitWithRollback:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave:
+GO
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
