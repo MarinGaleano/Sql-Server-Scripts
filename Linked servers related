@@ -1,0 +1,119 @@
+-- Linked seervers
+
+--Linked Server pra que serve e quando utilizar?
+https://imasters.com.br/data/linked-server-pra-que-serve-e-quando-utilizar
+-- Select basico para testar:
+A sintaxe correta do Linked Server é:
+
+[sql]Select * From [LinkedServer].[RemoteDatabase].[Owner].[Table]
+Exemplo:
+Select * From LK2008.DB_LK.dbo.Table1[/sql]
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Here are some useful sample queries (replace MyLinkedServer with your linked server name):
+
+🔹 1. Test basic connectivity
+-- Should return the name of the server if connection works
+EXEC sp_testlinkedserver N'MyLinkedServer';
+
+🔹 2. List all available catalogs (databases) on the linked server
+EXEC sp_catalogs N'MyLinkedServer';
+
+🔹 3. List all schemas in a database
+EXEC sp_tables_ex N'MyLinkedServer', N'AdventureWorks';
+
+🔹 4. Query system metadata
+-- Check server name and version
+SELECT * 
+FROM OPENQUERY(MyLinkedServer, 'SELECT @@SERVERNAME AS ServerName, @@VERSION AS Version');
+
+🔹 5. Query a table directly
+-- Four-part naming convention
+SELECT TOP 10 * 
+FROM MyLinkedServer.AdventureWorks.dbo.Person;
+
+-- OPENQUERY style
+SELECT * 
+FROM OPENQUERY(MyLinkedServer, 'SELECT TOP 10 FirstName, LastName FROM AdventureWorks.dbo.Person');
+
+🔹 6. Compare results between local and remote
+-- Useful to validate consistency
+SELECT COUNT(*) AS LocalCount FROM dbo.MyTable;
+SELECT COUNT(*) AS RemoteCount FROM MyLinkedServer.RemoteDB.dbo.MyTable;
+
+
+⚡ Notes:
+
+OPENQUERY is usually faster since the query runs on the remote server.
+
+The four-part name (LinkedServer.Database.Schema.Table) can be convenient but sometimes pushes more work to SQL Server locally.
+
+Start with sp_testlinkedserver → then query small datasets before testing heavy workloads.
+
+---------------------------------------------------------------------------------------------------
+Here are some diagnostic queries you can use to troubleshoot login/permission issues with a linked server (MyLinkedServer):
+
+🔹 1. Check linked server login mappings
+
+This shows how SQL Server maps your local login to the remote server:
+
+EXEC sp_helplinkedsrvlogin @rmtsrvname = N'MyLinkedServer';
+
+
+Look at:
+
+LocalLogin → your SQL/Windows login inside SQL Server
+
+RemoteUser → the mapped user on the linked server
+
+UsesSelf → means it tries to connect using your own credentials
+
+🔹 2. Test authentication with a simple query
+BEGIN TRY
+    SELECT TOP 1 name 
+    FROM MyLinkedServer.master.sys.databases;
+    PRINT 'Linked server connection successful!';
+END TRY
+BEGIN CATCH
+    PRINT 'Error connecting to linked server:';
+    PRINT ERROR_MESSAGE();
+END CATCH;
+
+
+If you get errors like:
+
+"Login failed for user..." → bad credentials/mapping
+
+"The OLE DB provider ... could not be found" → provider misconfiguration
+
+"Access denied" → insufficient remote permissions
+
+🔹 3. Verify remote login permissions
+
+Run this on the remote SQL Server (if you have access):
+
+-- Check if the remote user has rights to connect
+SELECT sp.name, sp.type_desc, sl.sysadmin, sl.securityadmin, sl.dbcreator
+FROM sys.server_principals sp
+LEFT JOIN sys.syslogins sl ON sp.sid = sl.sid
+WHERE sp.name = SUSER_SNAME();
+
+
+This tells you what rights the remote login has.
+
+🔹 4. Force a test with OPENQUERY
+SELECT * 
+FROM OPENQUERY(MyLinkedServer, 'SELECT SUSER_SNAME() AS RemoteLogin, USER_NAME() AS DBUser');
+
+
+✅ This helps confirm which user you are connecting as on the remote side.
+
+👉 With these, you can see:
+
+if the login is mapped,
+
+which remote user is being used,
+
+and whether that user has enough permissions.
+
