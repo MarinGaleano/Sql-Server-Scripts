@@ -1,0 +1,414 @@
+
+
+--Use a consulta a seguir para verificar se há índices ausentes e aplicar quaisquer índices recomendados que tenham valores de medida de melhoria alta. 
+Comece com as 5 ou 10 principais recomendações da saída que têm o valor de improvement_measure mais alto. 
+
+SELECT CONVERT(VARCHAR(30), GETDATE(), 126) AS runtime,
+    mig.index_group_handle,
+    mid.index_handle,
+    CONVERT(DECIMAL(28, 1), migs.avg_total_user_cost * migs.avg_user_impact * (migs.user_seeks + migs.user_scans)) AS improvement_measure,
+    'CREATE INDEX missing_index_' + CONVERT(VARCHAR, mig.index_group_handle) + '_' + CONVERT(VARCHAR, mid.index_handle) + ' ON ' + mid.statement + ' (' + ISNULL(mid.equality_columns,
+        '') + CASE WHEN mid.equality_columns IS NOT NULL
+AND mid.inequality_columns IS NOT NULL THEN ','
+ELSE ''
+END + ISNULL(mid.inequality_columns,
+        '') + ')' + ISNULL(' INCLUDE (' + mid.included_columns + ')',
+        '') AS create_index_statement,
+    migs.*,
+    mid.database_id,
+    mid.[object_id]
+FROM sys.dm_db_missing_index_groups mig
+INNER JOIN sys.dm_db_missing_index_group_stats migs ON migs.group_handle = mig.index_group_handle
+INNER JOIN sys.dm_db_missing_index_details mid ON mig.index_handle = mid.index_handle
+WHERE CONVERT (DECIMAL (28, 1),
+               migs.avg_total_user_cost * migs.avg_user_impact * (migs.user_seeks + migs.user_scans)) > 10
+ORDER BY migs.avg_total_user_cost * migs.avg_user_impact * (migs.user_seeks + migs.user_scans) DESC
+
+-------
+ou
+
+SELECT TOP 20
+    CONVERT (varchar(30), getdate(), 126) AS runtime,
+    CONVERT (decimal (28, 1), 
+        migs.avg_total_user_cost * migs.avg_user_impact * (migs.user_seeks + migs.user_scans) 
+        ) AS estimated_improvement,
+    'CREATE INDEX missing_index_' + 
+        CONVERT (varchar, mig.index_group_handle) + '_' + 
+        CONVERT (varchar, mid.index_handle) + ' ON ' + 
+        mid.statement + ' (' + ISNULL (mid.equality_columns, '') + 
+        CASE
+            WHEN mid.equality_columns IS NOT NULL
+            AND mid.inequality_columns IS NOT NULL THEN ','
+            ELSE ''
+        END + ISNULL (mid.inequality_columns, '') + ')' + 
+        ISNULL (' INCLUDE (' + mid.included_columns + ')', '') AS create_index_statement
+FROM sys.dm_db_missing_index_groups mig
+JOIN sys.dm_db_missing_index_group_stats migs ON 
+    migs.group_handle = mig.index_group_handle
+JOIN sys.dm_db_missing_index_details mid ON 
+    mig.index_handle = mid.index_handle
+ORDER BY estimated_improvement DESC;
+GO
+
+
+--Execute as seguintes consultas para identificar rastreamentos ativos do XEvent ou do Servidor:
+PRINT '--Profiler trace summary--'
+SELECT traceid, property, CONVERT(VARCHAR(1024), value) AS value FROM::fn_trace_getinfo(
+    default)
+GO
+PRINT '--Trace event details--'
+SELECT trace_id,
+    status,
+    CASE WHEN row_number = 1 THEN path ELSE NULL end AS path,
+    CASE WHEN row_number = 1 THEN max_size ELSE NULL end AS max_size,
+    CASE WHEN row_number = 1 THEN start_time ELSE NULL end AS start_time,
+    CASE WHEN row_number = 1 THEN stop_time ELSE NULL end AS stop_time,
+    max_files,
+    is_rowset,
+    is_rollover,
+    is_shutdown,
+    is_default,
+    buffer_count,
+    buffer_size,
+    last_event_time,
+    event_count,
+    trace_event_id,
+    trace_event_name,
+    trace_column_id,
+    trace_column_name,
+    expensive_event
+FROM
+    (SELECT t.id AS trace_id,
+     row_number() over(PARTITION BY t.id order by te.trace_event_id, tc.trace_column_id) AS row_number,
+     t.status,
+     t.path,
+     t.max_size,
+     t.start_time,
+     t.stop_time,
+     t.max_files,
+     t.is_rowset,
+     t.is_rollover,
+     t.is_shutdown,
+     t.is_default,
+     t.buffer_count,
+     t.buffer_size,
+     t.last_event_time,
+     t.event_count,
+     te.trace_event_id,
+     te.name AS trace_event_name,
+     tc.trace_column_id,
+     tc.name AS trace_column_name,
+     CASE WHEN te.trace_event_id in (23, 24, 40, 41, 44, 45, 51, 52, 54, 68, 96, 97, 98, 113, 114, 122, 146, 180) THEN CAST(1 as bit) ELSE CAST(0 AS BIT) END AS expensive_event FROM sys.traces t CROSS APPLY::fn_trace_geteventinfo(t.id) AS e JOIN sys.trace_events te ON te.trace_event_id = e.eventid JOIN sys.trace_columns tc ON e.columnid = trace_column_id) AS x
+GO
+PRINT '--XEvent Session Details--'
+SELECT sess.NAME 'session_name', event_name, xe_event_name, trace_event_id,
+    CASE WHEN xemap.trace_event_id IN(23, 24, 40, 41, 44, 45, 51, 52, 54, 68, 96, 97, 98, 113, 114, 122, 146, 180) 
+    THEN Cast(1 AS BIT)
+ELSE Cast(0 AS BIT)
+END AS expensive_event
+FROM sys.dm_xe_sessions sess
+JOIN sys.dm_xe_session_events evt
+ON sess.address = evt.event_session_address
+INNER JOIN sys.trace_xe_event_map xemap
+ON evt.event_name = xemap.xe_event_name
+GO
+
+---------------------------------------------------------------------------------
+When SQL Server 2005 was introduced it added Dynamic Management Views (DMVs)
+Note that these views store cumulative data, so when SQL Server is restated 
+the counters go back to zero, so be aware of this when monitoring your index 
+usage.
+
+---------------------------------------------------------------------------------
+-- see the number of Inserts, Updates and Deletes that occurred for each index, 
+so this shows how much work SQL Server had to do to maintain the index. 
+
+SELECT OBJECT_NAME(A.[OBJECT_ID]) AS [OBJECT NAME], 
+       I.[NAME] AS [INDEX NAME], 
+       A.LEAF_INSERT_COUNT, 
+       A.LEAF_UPDATE_COUNT, 
+       A.LEAF_DELETE_COUNT 
+FROM   SYS.DM_DB_INDEX_OPERATIONAL_STATS (db_id(),NULL,NULL,NULL ) A 
+       INNER JOIN SYS.INDEXES AS I 
+         ON I.[OBJECT_ID] = A.[OBJECT_ID] 
+            AND I.INDEX_ID = A.INDEX_ID 
+WHERE  OBJECTPROPERTY(A.[OBJECT_ID],'IsUserTable') = 1
+
+---------------------------------------------------------------------------------
+-- Identifying Unused Indexes
+The seeks refer to how many times an index seek occurred for that index.  A seek is the fastest way to access the data, so this is good.
+The scans refers to how many times an index scan occurred for that index.  A scan is when multiple rows of data had to be searched to find the data.  Scans are something you want to try to avoid.
+The lookups refer to how many times the query required data to be pulled from the clustered index or the heap (does not have a clustered index).
+The updates refers to how many times the index was updated due to data changes which should correspond to the first query above
+
+
+If you see indexes where there are no seeks, scans or lookups, but there are updates this means that SQL Server 
+has not used the index to satisfy a query but still needs to maintain the index.  
+Remember that the data from these DMVs is reset when SQL Server is restarted, so make sure you have collected data for a long enough period of time to determine which indexes may be good candidates to be dropped.
+
+-- query that can be used to get the list of unused indexes in SQL Server (updated indexes not used in any seeks, scan or lookup operations) is as follows:
+this query does not list unique and primary keys
+
+SELECT
+    objects.name AS Table_name,
+    indexes.name AS Index_name,
+    dm_db_index_usage_stats.user_seeks,
+    dm_db_index_usage_stats.user_scans,
+    dm_db_index_usage_stats.user_updates
+FROM
+    sys.dm_db_index_usage_stats
+    INNER JOIN sys.objects ON dm_db_index_usage_stats.OBJECT_ID = objects.OBJECT_ID
+    INNER JOIN sys.indexes ON indexes.index_id = dm_db_index_usage_stats.index_id AND dm_db_index_usage_stats.OBJECT_ID = indexes.OBJECT_ID
+WHERE
+    indexes.is_primary_key = 0 -- This condition excludes primary key constarint
+    AND
+    indexes. is_unique = 0 -- This condition excludes unique key constarint
+    AND
+    dm_db_index_usage_stats. user_lookups = 0
+    AND
+    dm_db_index_usage_stats.user_seeks = 0
+    AND
+    dm_db_index_usage_stats.user_scans = 0
+ORDER BY
+    dm_db_index_usage_stats.user_updates DESC
+	
+--The above query lists all unused queries that are not primary and unique keys, 
+but it also lists all unused indexes that SQL Server has not worked with. 
+The user_updates column in the dm_db_index_usage_stats DMV is counting where the 
+index was updated as the application has carried some changes to data, so the index was updated. 
+To do that the dm_db_index_usage_stats.user_updates <> 0 conditions should be added to the previous script
+
+SELECT
+    objects.name AS Table_name,
+    indexes.name AS Index_name,
+    dm_db_index_usage_stats.user_seeks,
+    dm_db_index_usage_stats.user_scans,
+    dm_db_index_usage_stats.user_updates
+FROM
+    sys.dm_db_index_usage_stats
+    INNER JOIN sys.objects ON dm_db_index_usage_stats.OBJECT_ID = objects.OBJECT_ID
+    INNER JOIN sys.indexes ON indexes.index_id = dm_db_index_usage_stats.index_id AND dm_db_index_usage_stats.OBJECT_ID = indexes.OBJECT_ID
+WHERE
+    indexes.is_primary_key = 0 --This line excludes primary key constarint
+    AND
+    indexes. is_unique = 0 --This line excludes unique key constarint
+    AND 
+    dm_db_index_usage_stats.user_updates <> 0 -- This line excludes indexes SQL Server hasn’t done any work with
+    AND
+    dm_db_index_usage_stats. user_lookups = 0
+    AND
+    dm_db_index_usage_stats.user_seeks = 0
+    AND
+    dm_db_index_usage_stats.user_scans = 0
+ORDER BY
+    dm_db_index_usage_stats.user_updates DESC
+	
+	
+---------------------------------------------------------------------------------
+-- --Fragmentation
+use <DATABASE_NAME>
+SELECT OBJECT_NAME(ix.object_ID) AS TableName, 
+       ix.name AS IndexName, 
+       ixs.index_type_desc AS IndexType, 
+       ixs.avg_fragmentation_in_percent
+FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, NULL) ixs
+     INNER JOIN sys.indexes ix ON ix.object_id = ixs.object_id
+                                  AND ixs.index_id = ixs.index_id
+WHERE ixs.avg_fragmentation_in_percent > 30
+ORDER BY ixs.avg_fragmentation_in_percent DESC;
+
+---------------------------------------------------------------------------------
+-- Rebuild highly fragmented indexes: 
+ 
+ALTER INDEX ALL ON YourTable REBUILD; 
+
+-- Use REORGANIZE for lower fragmentation levels:
+ 
+ALTER INDEX ALL ON YourTable REORGANIZE;  
+
+---------------------------------------------------------------------------------
+-- Job creation: IndexOptimize - USER_DATABASES
+
+USE [msdb]
+GO
+
+/****** Object:  Job [IndexOptimize - USER_DATABASES]    Script Date: 12/20/2024 12:29:22 PM ******/
+BEGIN TRANSACTION
+DECLARE @ReturnCode INT
+SELECT @ReturnCode = 0
+/****** Object:  JobCategory [Database Maintenance]    Script Date: 12/20/2024 12:29:22 PM ******/
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'Database Maintenance' AND category_class=1)
+BEGIN
+EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'Database Maintenance'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+
+END
+
+DECLARE @jobId BINARY(16)
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'IndexOptimize - USER_DATABASES', 
+		@enabled=1, 
+		@notify_level_eventlog=2, 
+		@notify_level_email=2, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'Source: https://ola.hallengren.com', 
+		@category_name=N'Database Maintenance', 
+		@owner_login_name=N'CISAdmin', 
+		@notify_email_operator_name=N'SQL DBA', @job_id = @jobId OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [IndexOptimize - USER_DATABASES]    Script Date: 12/20/2024 12:29:22 PM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'IndexOptimize - USER_DATABASES', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'TSQL', 
+		@command=N'EXECUTE [dbo].[IndexOptimize]
+@Databases = ''USER_DATABASES'',
+@FragmentationLow = NULL,
+@FragmentationLevel1 = 5,
+@FragmentationLevel2 = 30,
+@FragmentationMedium = ''INDEX_REBUILD_ONLINE,INDEX_REORGANIZE'',
+@FragmentationHigh = ''INDEX_REBUILD_ONLINE,INDEX_REORGANIZE'',
+@UpdateStatistics = ''ALL'',
+@StatisticsSample = 100,
+@OnlyModifiedStatistics = ''Y'',
+@LogToTable = ''Y''', 
+		@database_name=N'master', 
+		@output_file_name=N'G:\MSSQL15.PEL\MSSQL\Log\IndexOptimize_$(ESCAPE_SQUOTE(JOBID))_$(ESCAPE_SQUOTE(STEPID))_$(ESCAPE_SQUOTE(STRTDT))_$(ESCAPE_SQUOTE(STRTTM)).txt', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule @job_id=@jobId, @name=N'IndexOptimize Weekly- USER_DATABASES', 
+		@enabled=1, 
+		@freq_type=8, 
+		@freq_interval=64, 
+		@freq_subday_type=1, 
+		@freq_subday_interval=0, 
+		@freq_relative_interval=0, 
+		@freq_recurrence_factor=1, 
+		@active_start_date=20220101, 
+		@active_end_date=99991231, 
+		@active_start_time=220000, 
+		@active_end_time=235959, 
+		@schedule_uid=N'47db3a2f-6aee-4ad2-891c-9d119f0d85ae'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+COMMIT TRANSACTION
+GOTO EndSave
+QuitWithRollback:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave:
+GO
+
+---------------------------------------------------------------------------------
+-- Script for Controlled Shrink 
+
+ Via T-SQL: 
+
+If it is possible to shrink some large files, here is a script that may be useful in this case. 
+It is important to notify the application team before performing the shrink process. 
+
+ Collapse source
+USE YourDatabase; 
+ 
+-- Retrieve file size, free space, and database properties 
+ 
+SELECT 
+    CAST(sysfiles.size / 128.0 AS int) AS File_Size_inMBs, 
+    sysfiles.name AS File_Logical_Name, 
+    sysfiles.filename AS File_Name_And_Location, 
+    CONVERT(sysname, DatabasePropertyEx(DB_NAME(), 'Status')) AS [Status], 
+    CONVERT(sysname, DatabasePropertyEx(DB_NAME(), 'Updateability')) AS Usage, 
+    CONVERT(sysname, DatabasePropertyEx(DB_NAME(), 'Recovery')) AS Recovery_Mode, 
+    CAST(sysfiles.size / 128.0 - CAST(FILEPROPERTY(sysfiles.name, 'SpaceUsed') AS int) / 128.0 AS int) AS Free_Space_inMBs, 
+    CAST(100 * (CAST (((sysfiles.size / 128.0 - CAST(FILEPROPERTY(sysfiles.name, 'SpaceUsed') AS int) / 128.0) / (sysfiles.size / 128.0))  
+    AS decimal(4,2))) AS varchar(8)) + '%' AS Free_Space_Percentage 
+FROM dbo.sysfiles; 
+ 
+GO 
+ 
+ 
+-- Declare variables for the shrink operation 
+ 
+DECLARE @File VarChar(100); 
+DECLARE @Initial INT; 
+DECLARE @Final INT; 
+ 
+ 
+SET @File = 'File_Name'           -- Logical name of the data or log file (without extension: .mdf, .ndf, .ldf) 
+SET @Initial = XXX_initial_value  -- Initial file size (from shrink UI or sysfiles query) 
+SET @Final = XXX_final_value      -- Target file size after shrink 
+ 
+  
+ 
+-- Loop to gradually shrink the file in steps 
+ 
+WHILE @Initial > @Final 
+BEGIN 
+    DBCC SHRINKFILE(@File, @Initial); 
+    PRINT CAST(@Initial AS VarChar(20)) + ' - ' + CONVERT(VarChar(30), GETDATE(), 120); 
+    SET @Initial = @Initial - 100; -- Shrinks the file in 100MB steps 
+END 
+ 
+GO
+------------------------------------------------------------------------------------------------
+-- Find PK columns for a table
+
+SELECT
+    kc.name AS ConstraintName,
+    c.name AS ColumnName,
+    t.name AS TableName,
+    sch.name AS SchemaName
+FROM 
+    sys.key_constraints kc
+JOIN 
+    sys.index_columns ic ON kc.unique_index_id = ic.index_id AND kc.parent_object_id = ic.object_id
+JOIN 
+    sys.columns c ON ic.column_id = c.column_id AND ic.object_id = c.object_id
+JOIN 
+    sys.tables t ON kc.parent_object_id = t.object_id
+JOIN 
+    sys.schemas sch ON t.schema_id = sch.schema_id
+WHERE 
+    kc.type = 'PK' -- Primary Key
+    AND t.name = 'DoorHierarchy' -- Replace with your table name
+    AND sch.name = 'dbo';        -- Replace with your schema if different
+
+--List Indexes and Ordered Columns for a Specific Table
+
+DECLARE @TableName SYSNAME = 'DoorHierarchy';
+DECLARE @SchemaName SYSNAME = 'dbo';
+
+SELECT
+    t.name AS TableName,
+    i.name AS IndexName,
+    ic.index_column_id AS ColumnOrder,
+    c.name AS ColumnName,
+    i.type_desc AS IndexType,
+    ic.is_descending_key AS IsDescending
+FROM 
+    sys.indexes i
+JOIN 
+    sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+JOIN 
+    sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+JOIN 
+    sys.tables t ON i.object_id = t.object_id
+JOIN 
+    sys.schemas s ON t.schema_id = s.schema_id
+WHERE 
+    t.name = @TableName
+    AND s.name = @SchemaName
+    AND i.is_hypothetical = 0
+ORDER BY 
+    TableName, IndexName, ic.index_column_id;
+	
+------------------------------------------------------------------------------------------------
