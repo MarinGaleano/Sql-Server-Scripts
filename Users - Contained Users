@@ -1,0 +1,124 @@
+A SQL Login (Contained) refers to a user account that is fully contained within a single SQL Server database — it does not depend on a server-level login. This type of user is called a contained database user.
+
+🔍 What Is a Contained User?
+A contained user:
+
+Exists only in the database.
+
+Authenticates directly against the database, not through a server login (syslogins) or Windows account.
+
+Does not require a corresponding login on the SQL Server instance.
+
+This is part of SQL Server’s Contained Database feature, which helps isolate databases from the SQL Server instance they run on.
+
+✅ Benefits
+Benefit	Description
+🔁 Easy portability	You can back up and restore the database to another instance without needing to recreate logins.
+❌ No SID mismatch	Avoids issues like orphaned users (User X exists in the database but not in the login list).
+🔐 Database-level security	All user authentication happens at the database level.
+
+📦 How to Create a Contained User
+First, enable contained databases at the server level:
+
+sql
+Copy
+Edit
+EXEC sp_configure 'contained database authentication', 1;
+RECONFIGURE;
+Then create a contained database user:
+
+sql
+Copy
+Edit
+-- Create a contained user with password
+CREATE USER [db_user_name] WITH PASSWORD = 'StrongPassword123!';
+-- Grant roles/permissions as needed
+ALTER ROLE db_datareader ADD MEMBER [db_user_name];
+⚠️ Note: You do not use CREATE LOGIN here.
+
+🔑 Difference: Contained vs Traditional Users
+Feature	Traditional SQL Login	Contained User
+Requires server login	✅ Yes	❌ No
+Authentication scope	Server	Database
+Orphaned user risk	✅ Possible (if login missing)	❌ Avoided
+Portability	❌ Manual login migration	✅ Easy backup/restore
+
+🔐 Authentication Types
+Contained users support:
+
+SQL Authentication (username + password)
+
+Windows Authentication (less common but possible)
+
+📌 Use Cases
+Multi-tenant databases
+
+Databases that need to be easily moved between servers
+
+Reducing dependency on DBA management of server-level logins
+
+Would you like a full script to convert a traditional user to a contained user or test contained login scenarios?
+
+
+
+
+
+
+
+You said:
+How to list SQL Login (Contained)?
+
+
+ChatGPT said:
+To list contained SQL logins (i.e., contained database users) in SQL Server, you can query the current database's user list and filter for users with passwords (i.e., contained users using SQL authentication).
+
+✅ Query to List Contained Users (SQL Auth)
+Run this in the user database:
+
+sql
+Copy
+Edit
+SELECT name,
+       type_desc,
+       authentication_type_desc
+FROM sys.database_principals
+WHERE type IN ('S', 'E', 'X') -- SQL, External, and Windows users
+  AND authentication_type = 2; -- 2 = DATABASE authentication (contained)
+🔍 Output Example
+name	type_desc	authentication_type_desc
+my_user	SQL_USER	DATABASE
+tenant_admin	SQL_USER	DATABASE
+
+🧠 Explanation
+sys.database_principals is the catalog view of users in the current database.
+
+authentication_type = 2 means the user is authenticated at the database level (contained).
+
+type = 'S' is a SQL user.
+
+These users do not require a server-level login.
+
+🚫 Not Contained Users
+If authentication_type = 1, the user maps to a server login.
+
+These are not contained users and will cause orphaning if the login doesn't exist on another server.
+
+🔁 Want to List All Contained Users Across All Databases?
+Here's a script to list all contained users in all databases:
+
+sql
+Copy
+Edit
+EXEC sp_msforeachdb '
+USE [?];
+IF DATABASEPROPERTYEX(DB_NAME(), ''IsContained'') = 1
+BEGIN
+    SELECT DB_NAME() AS [Database],
+           name,
+           type_desc,
+           authentication_type_desc
+    FROM sys.database_principals
+    WHERE type = ''S''
+      AND authentication_type = 2;
+END
+';
