@@ -1,0 +1,13 @@
+---SQL SERVER 2022 - certificate error when creating a job for integration services
+
+https://learn.microsoft.com/en-us/answers/questions/1652988/sql-server-2022-certificate-error-when-creating-a
+
+--Certificate Knowledge Site
+https://tmobileusa.sharepoint.com/sites/nclm/SitePages/NCLM.aspx?clickparams=eyAiWC1BcHBOYW1lIiA6ICJNaWNyb3NvZnQgT3V0bG9vayIsICJYLUFwcFZlcnNpb24iIDogIjE2LjAuMTc4MzAuMjAyMTAiLCAiT1MiIDogIldpbmRvd3MiIH0%3d
+
+-- Certificate teams channel
+https://nam02.safelinks.protection.outlook.com/?url=https%3A%2F%2Fteams.microsoft.com%2Fdl%2Flauncher%2Flauncher.html%3Furl%3D%252F_%2523%252Fl%252Fchannel%252F19%253AfZPJK49vTK743TypVfEZKJ5CjWcsECSJ99ZHcOHc1EQ1%2540thread.tacv2%252FGeneral%253FgroupId%253D1b5fe932-3198-42f4-8a67-8fdfed0bc8a7%2526tenantId%253Dbe0f980b-dd99-4b19-bd7b-bc71a09b026c%26type%3Dchannel%26deeplinkId%3D8377f301-58ac-4027-8521-ab34f836f1ff%26directDl%3Dtrue%26msLaunch%3Dtrue%26enableMobilePage%3Dtrue%26suppressPrompt%3Dtrue&data=05%7C02%7CCarley.Robbins15%40T-Mobile.com%7Ce5f47bcc706d466b3cd608dcc876ae53%7Cbe0f980bdd994b19bd7bbc71a09b026c%7C0%7C0%7C638605659276360135%7CUnknown%7CTWFpbGZsb3d8eyJWIjoiMC4wLjAwMDAiLCJQIjoiV2luMzIiLCJBTiI6Ik1haWwiLCJXVCI6Mn0%3D%7C0%7C%7C%7C&sdata=%2BKx1e3AZaLhHV12PiiqtdbOhrxw7pFJiHOArr4fGZQo%3D&reserved=0
+
+--Certificate Revocation list
+https://nam02.safelinks.protection.outlook.com/?url=http%3A%2F%2Fcrl.t-mobile.com%2FPKI%2Ftmuscps.htm&data=05%7C02%7CCarley.Robbins15%40T-Mobile.com%7Ce5f47bcc706d466b3cd608dcc876ae53%7Cbe0f980bdd994b19bd7bbc71a09b026c%7C0%7C0%7C638605659276353082%7CUnknown%7CTWFpbGZsb3d8eyJWIjoiMC4wLjAwMDAiLCJQIjoiV2luMzIiLCJBTiI6Ik1haWwiLCJXVCI6Mn0%3D%7C0%7C%7C%7C&sdata=PA%2B7eO2mw5Ye9kJj7ZWOKz78S%2BfK8y7uejfZsL2g95M%3D&reserved=0
+
