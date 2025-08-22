@@ -1,0 +1,32 @@
+
+
+----------------------------------------
+-- Listar as portas ADM e de servico
+SELECT 
+    * 
+FROM 
+    sys.dm_server_registry 
+WHERE 
+    value_name = 'TcpDynamicPorts'
+
+--Listar a porta exclusiva de ADM
+SELECT 
+    * 
+FROM 
+    sys.dm_server_registry 
+WHERE 
+    value_name = 'TcpDynamicPorts' 
+    AND registry_key LIKE '%\AdminConnection\Tcp'
+	
+--Listar a porta de servico
+SELECT 
+    * 
+FROM 
+    sys.dm_server_registry 
+WHERE 
+    value_name = 'TcpDynamicPorts' 
+    AND registry_key LIKE '%\Tcp\IPALL'
+	
+-- Na Azure a porta será sempre a 1433
+https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-create-server-level-portal-quickstart?view=azuresql
+
