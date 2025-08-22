@@ -1,0 +1,38 @@
+-- Windows related commands
+
+---------------------------------------------------------------------------------
+Instalação de software, usar o software center da TMO
+---------------------------------------------------------------------------------
+AD Search:
+net user /domain Jlarocc2
+
+net user /domain ca_lmedina6 ( usu[ario do Lucas Medina para comparar os grupos)
+---------------------------------------------------------------------------------
+
+usar o utilitario Treesize para listar a arvore de diretorios e espaço utilizado.
+---------------------------------------------------------------------------------
+How do you tell if a Windows server is physical or virtual?
+For Windows:
+Click Start > Run.
+Type msinfo32 and press Enter.
+In the right pane, look for System Manufacturer for 'VMware, Inc. ' If this is present, you are running within a virtualized platform, and cannot install another virtualization product on top of it.
+---------------------------------------------------------------------------------
+-- List connected users
+cmd/>  query user
+
+ou 
+query user /server:HOSTNAME
+
+----------------------------------------------------------------------------------
+-- Cluster check
+No powershell:  Get-ClusterNode
+
+--File list system type no powershell
+
+PS:> Get-Ciminstance -Classname Win32_Volume -Filter "FileSystem='NTFS'" | Select-Object Name, Label, BiockSize, FileSystem | Format-Table -Autosize
+ou Get-Ciminstance -Classname Win32_Volume | Select-Object Name, Label, BiockSize, FileSystem | Format-Table -Autosize
+
+-- Listar portas abertas e processos
+netstat -aon
+
+
