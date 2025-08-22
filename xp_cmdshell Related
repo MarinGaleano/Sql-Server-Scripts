@@ -1,0 +1,43 @@
+✅ Step-by-Step: Check if xp_cmdshell is Enabled
+sql
+Copy
+Edit
+-- Allow advanced options to be shown
+EXEC sp_configure 'show advanced options', 1;
+RECONFIGURE;
+
+-- Check the current status of xp_cmdshell
+EXEC sp_configure 'xp_cmdshell';
+
+
+🔍 Output Explanation
+The key columns are:
+
+name: should be xp_cmdshell
+
+config_value: 1 means enabled, 0 means disabled (the intended setting)
+
+run_value: the value currently in effect
+
+Example:
+plaintext
+Copy
+Edit
+name         | minimum | maximum | config_value | run_value
+-------------|---------|---------|--------------|-----------
+xp_cmdshell  | 0       | 1       | 0            | 0
+In this case, xp_cmdshell is disabled.
+
+🛠️ Enable xp_cmdshell (if needed)
+To enable it (requires sysadmin role):
+
+sql
+Copy
+Edit
+-- Show advanced options
+EXEC sp_configure 'show advanced options', 1;
+RECONFIGURE;
+
+-- Enable xp_cmdshell
+EXEC sp_configure 'xp_cmdshell', 1;
+RECONFIGURE;
