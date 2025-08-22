@@ -1,0 +1,799 @@
+
+----health check queries, rodar tudo  junto
+
+--Diskspace
+
+SELECT DISTINCT volumes.logical_volume_name AS LogicalName,
+    volumes.volume_mount_point AS Drive,
+    CONVERT(INT,volumes.available_bytes/1024/1024/1024) AS FreeSpaceMB,
+    CONVERT(INT,volumes.total_bytes/1024/1024/1024) AS TotalSpaceMB,
+    CONVERT(INT,volumes.total_bytes/1024/1024/1024) - CONVERT(INT,volumes.available_bytes/1024/1024/1024) AS OccupiedSpaceMB,
+	ROUND((volumes.available_bytes/1024/1024/1024*1.00) / (volumes.total_bytes/1024/1024/1024 *1.00)* 100, 2,2)  as 'FREE%'
+FROM sys.master_files mf
+CROSS APPLY sys.dm_os_volume_stats(mf.database_id, mf.FILE_ID) volumes
+go
+
+-- Logfile utilization
+DBCC SQLPERF(logspace)
+go
+
+-- Tempdb % usage (Sqlserver has 128 of 8KB pages in a MB - Sqlserver default 8KB and it can't be changed)
+
+SELECT SUM(unallocated_extent_page_count) AS [tempdb free pages],
+(SUM(total_page_count)*1.0/128) as [total space MB], 
+  (SUM(unallocated_extent_page_count)*1.0/128) AS [free space in MB],
+  (SUM(unallocated_extent_page_count)*1.0/128)/(SUM(total_page_count)*1.0/128)*100 as [free space %]
+FROM tempdb.sys.dm_db_file_space_usage;
+
+
+-- cluster nodes
+SELECT * FROM sys.dm_hadr_cluster_members
+go
+
+-- Health and status of AG databases, run this on the primary replica. 
+-- On secondary this will only show info for that instance
+SELECT  ag.name ag_name ,
+        ar.replica_server_name ,
+        adc.database_name ,
+        hdrs.database_state_desc ,
+        hdrs.synchronization_state_desc ,
+        hdrs.synchronization_health_desc ,
+        agl.dns_name ,
+        agl.port
+-- ,*
+FROM    sys.dm_hadr_database_replica_states hdrs
+        LEFT JOIN sys.availability_groups ag ON hdrs.group_id =ag.group_id
+        LEFT  JOIN sys.availability_replicas ar ON ag.group_id = ar.group_id
+                                                   AND ar.replica_id = hdrs.replica_id
+        LEFT  JOIN sys.availability_databases_cluster adc ON adc.group_id = ag.group_id
+                                                             AND adc.group_database_id = hdrs.group_database_id
+        LEFT  JOIN sys.availability_group_listeners agl ON agl.group_id = ag.group_id
+ORDER BY ag.name , adc.database_name
+go
+
+-- Health and status of AG listeners
+SELECT agl.dns_name, agl.port, aglia.* FROM sys.availability_group_listener_ip_addresses aglia INNER JOIN sys.availability_group_listeners agl ON agl.listener_id = aglia.listener_id
+go
+
+-- DbStatus
+sp_helpdb
+go
+
+-- Active sessions order by CPU
+EXEC sp_whoisactive  @sort_order = '[CPU] DESC', @delta_interval = 1
+go
+
+--[CPU from Queries as Percent of Total CPU Capacity]
+
+DECLARE @init_sum_cpu_time int,
+        @utilizedCpuCount int 
+--get CPU count used by SQL Server
+SELECT @utilizedCpuCount = COUNT( * )
+FROM sys.dm_os_schedulers
+WHERE status = 'VISIBLE ONLINE' 
+--calculate the CPU usage by queries OVER a 5 sec interval 
+SELECT @init_sum_cpu_time = SUM(cpu_time) FROM sys.dm_exec_requests
+WAITFOR DELAY '00:00:05'
+SELECT CONVERT(DECIMAL(5,2), ((SUM(cpu_time) - @init_sum_cpu_time) / (@utilizedCpuCount * 5000.00)) * 100) AS [CPU from Queries as Percent of Total CPU Capacity] 
+FROM sys.dm_exec_requests
+go
+
+--Server Memory
+SELECT available_physical_memory_kb/1024 as "Total Memory MB",
+ available_physical_memory_kb/(total_physical_memory_kb*1.0)*100 AS "% Memory Free"
+FROM sys.dm_os_sys_memory
+go
+
+--Blocking session
+SELECT session_id, blocking_session_Id, start_time,  wait_time, status
+FROM sys.dm_exec_requests
+WHERE blocking_session_id <> 0;
+GO
+
+--Long running queries and its waits
+-- Only user sessions, not internal processes
+
+SELECT
+    r.session_id,
+    r.status,
+    r.command,
+    r.cpu_time / 1000.0 AS cpu_time_sec,
+    r.total_elapsed_time / 1000.0 AS elapsed_time_sec,
+    r.wait_type,
+    r.wait_time / 1000.0 AS wait_time_sec,
+    r.blocking_session_id,
+    DB_NAME(r.database_id) AS database_name,
+    SUBSTRING(t.text, (r.statement_start_offset / 2) + 1,
+              CASE 
+                  WHEN r.statement_end_offset = -1 THEN LEN(CONVERT(NVARCHAR(MAX), t.text)) 
+                  ELSE (r.statement_end_offset - r.statement_start_offset) / 2 + 1 
+              END) AS query_text
+FROM sys.dm_exec_requests AS r
+INNER JOIN sys.dm_exec_sessions AS s
+    ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+WHERE r.session_id <> @@SPID
+AND s.is_user_process = 1 -- Excludes internal/system sessions
+AND r.total_elapsed_time > 5000 -- Only queries running longer than 5 seconds
+ORDER BY r.total_elapsed_time DESC;
+
+-----------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------
+--Helth check for CFAM by Jonathan Manago 
+
+SET QUOTED_IDENTIFIER ON
+SET NOCOUNT ON    
+    
+DECLARE @tableHTML  NVARCHAR(MAX),@sub varchar(100)
+
+SET @sub='CFAM PRIMARY(PPOLWCFAM00007) Health Check: '+CONVERT(varchar, DATEADD(hour, DATEDIFF(hour, 0, GETDATE()), 0))   
+
+
+SET @tableHTML =    
+    N'<H1 style="font-size:Medium;font-family:Calibri;">SQL Server Information: '+ '  '+' </H1>' +    
+    N'<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >' +    
+    N'<tr><th>SQLNetworkName</th>'+
+	N'<th>MachineName</th>'+
+	N'<th>SQL Server Name</th>'+
+	N'<th>IsClustered</th>'+
+	N'<th>SQLService_Current_Node</th>' +    
+	N'<th>Edition</th>' +    
+	N'<th>Servicepack</th>' +    
+	N'<th>InstanceName</th>' +    
+	N'<th>ProductVersion</th>' +    
+	N'<th>Serverversion</th>' +       
+    CAST ( ( 
+					select td =@@servername , '',   
+ td =CAST( SERVERPROPERTY('MachineName') AS NVARCHAR(128))  , '',  
+ td =CAST( SERVERPROPERTY('ServerName')AS NVARCHAR(128))  , '',  
+ td =CAST( SERVERPROPERTY('IsClustered') AS NVARCHAR(128))  , '',  
+ td =CAST( SERVERPROPERTY('ComputerNamePhysicalNetBIOS')AS NVARCHAR(128)) , '',  
+ td =serverproperty('edition')  , '',  
+ td =serverproperty('productlevel')  , '',  
+ td =CAST( SERVERPROPERTY('InstanceName') AS NVARCHAR(128))  , '',  
+ td =SERVERPROPERTY('Productversion')  , '', 
+ td=@@version, ''	  
+  FOR XML PATH('tr'), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N'</table>' ;    
+
+
+	--SQL Server AGent Information Collection
+
+
+IF EXISTS (SELECT * FROM tempdb.dbo.sysobjects WHERE ID = OBJECT_ID(N'tempdb..#sql_agent_state'))
+BEGIN
+drop table #sql_agent_state
+    END
+    declare @sql_agent_service varchar(128),@state_sql_agent varchar(20)
+    create table #sql_agent_state(service_name varchar(128) default 'SQLAgent ' ,state varchar(20))
+    insert into #sql_agent_state(state) exec xp_servicecontrol N'querystate',N'SQLServerAGENT'  
+    --select service_name as ServiceName, state as Status from #sql_agent_state
+    select service_name as ServiceName, replace(state,'.','') as Status from #sql_agent_state
+SET @tableHTML = @tableHTML+ 
+	N'<H1 style="font-size:Medium;font-family:Calibri;">SQL Server Agent Status: '+ '  '+' </H1>' +    
+    N'<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >' +    
+    N'<tr><th>ServiceName</th>'+
+	N'<th>Status</th>'+
+	  
+    CAST ( ( 
+					select td =service_name  , '',   
+ td =replace(state,'.',''), '' 
+	from #sql_agent_state  
+  FOR XML PATH('tr'), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N'</table>' ;    
+
+	--Database states
+declare @bkpchk varchar(10)
+declare @bkpcomm varchar(100)
+
+select  @bkpchk = sys.fn_hadr_backup_is_preferred_replica (name) from sys.databases where database_id =5
+
+if @bkpchk = 1 
+begin
+set @bkpcomm = 'Primary'
+end
+
+else 
+begin 
+
+set @bkpcomm = 'Secondary'
+end
+print @bkpcomm
+
+IF EXISTS (SELECT * FROM tempdb.dbo.sysobjects WHERE ID = OBJECT_ID(N'tempdb..#tmp_database'))
+BEGIN
+drop table #tmp_database
+END
+
+declare @count int
+declare @name varchar(128)
+declare @state_desc varchar(128)
+
+select @count = COUNT(*) from sys.databases where state_desc not in ('ONLINE','RESTORING')
+create table #tmp_database (name nvarchar(128),state_desc nvarchar(128))
+if @count > 0
+		begin
+			Declare Cur1 cursor for select name,state_desc from sys.databases 
+			where state_desc not in ('ONLINE','RESTORING')
+		open Cur1
+			FETCH NEXT FROM Cur1 INTO @name,@state_desc
+			WHILE @@FETCH_STATUS = 0
+				BEGIN
+					insert into #tmp_database values(@name,@state_desc)
+				FETCH NEXT FROM Cur1 INTO @name,@state_desc
+				END
+			CLOSE Cur1
+			DEALLOCATE Cur1
+		end
+else 
+	begin
+		insert into #tmp_database values('ALL DATABASES ','ONLINE')
+	end
+	SET @tableHTML = @tableHTML+ 
+	N'<H1 style="font-size:Medium;font-family:Calibri;">Database Status: '+ '  '+' </H1>' +    
+    N'<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >' +    
+    N'<tr><th>DBName</th>'+
+	N'<th>state_desc</th>'+
+	N'<th>Backup_Prefered </th>'+
+	  
+    CAST ( ( 
+					select td =name  , '',   
+ td =state_desc, '',
+ td = @bkpcomm,''
+	from #tmp_database  
+  FOR XML PATH('tr'), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N'</table>' ; 
+select name as DBName ,state_desc as DBStatus from #tmp_database
+
+
+--LogFile Utilization 
+
+CREATE TABLE #tlogtables
+(
+   databaseName   sysname,
+   logSize        DECIMAL (18, 5),
+   logUsed        DECIMAL (18, 5),
+   status         INT
+)
+
+INSERT INTO #tlogtables
+EXECUTE ('DBCC SQLPERF(LOGSPACE)')
+SET @tableHTML = @tableHTML+ 
+	N'<H1 style="font-size:Medium;font-family:Calibri;">Log File Utilization Percentage: '+ '  '+' </H1>' +    
+    N'<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >' +    
+    N'<tr><th>DatabaseName</th>'+
+	    N'<th>LogSize</th>'+
+		N'<th>Percent_Utilization</th>'+
+	  
+    CAST ( ( 
+					select td = databaseName,'',
+       td=logSize,'',
+       td=logUsed,''
+	  FROM #tlogtables where databasename not in ('master','msdb','model')
+  FOR XML PATH('tr'), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N'</table>' ; 
+-- step_3: get T-logs exceeding threshold size for a specific database
+SELECT databaseName,
+       logSize,
+       logUsed,
+       status
+  FROM #tlogtables
+
+  Drop table #tlogtables
+
+--Blocking 
+
+SET @tableHTML = @tableHTML+ 
+	N'<H1 style="font-size:Medium;font-family:Calibri;">Blocking Information: '+ '  '+' </H1>' +    
+    N'<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >' +    
+    N'<tr><th>Blocking Count</th>'+
+	  
+    CAST ( ( 
+					select td =count (*),''   
+
+from sys.sysprocesses where blocked <> 0 
+  FOR XML PATH('tr'), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N'</table>' ; 
+
+	select count (*) from sys.sysprocesses where blocked <> 0 
+
+	--Drive Space
+Create table #temp_drive (drivename varchar(10),size int)
+insert into #temp_drive
+EXEC XP_FIXEDDRIVES
+
+SET @tableHTML = @tableHTML+ 
+	N'<H1 style="font-size:Medium;font-family:Calibri;">Drive Information: '+' ' +' </H1>' +    
+    N'<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >' +    
+    N'<tr><th>Drive Name</th>'+
+	N'<th>Free Space (GB)</th>'+
+	  
+    CAST ( ( 
+					select td =drivename,'',
+					td=(size/1024),''
+
+from #temp_drive 
+  FOR XML PATH('tr'), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N'</table>' ; 
+	select * from #temp_drive
+	drop table #temp_drive
+--CPU Information
+
+DECLARE @ts BIGINT;
+DECLARE @lastNmin TINYINT;
+SET @lastNmin = 1;
+SELECT @ts =(SELECT cpu_ticks/(cpu_ticks/ms_ticks) FROM sys.dm_os_sys_info); 
+SELECT TOP(@lastNmin)
+		SQLProcessUtilization AS [SQLServer_CPU_Utilization], 
+		DATEADD(ms,-1 *(@ts - [timestamp]),GETDATE())AS [Event_Time] ,
+		case when SQLProcessUtilization > 80 then 'Warning'
+		else 'Good'
+		end as Comment
+FROM (SELECT record.value('(./Record/@id)[1]','int')AS record_id, 
+record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]','int')AS [SystemIdle], 
+record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]','int')AS [SQLProcessUtilization], 
+[timestamp]      
+FROM (SELECT[timestamp], convert(xml, record) AS [record]             
+FROM sys.dm_os_ring_buffers             
+WHERE ring_buffer_type =N'RING_BUFFER_SCHEDULER_MONITOR'AND record LIKE'%%')AS x )AS y 
+ORDER BY record_id DESC;
+
+
+SET @tableHTML = @tableHTML+ 
+	N'<H1 style="font-size:Medium;font-family:Calibri;">CPU Information: '+' '+' </H1>' +    
+    N'<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >' +    
+    N'<th>SQLServer_CPU_Utilization</th>'+
+	N'<th>Event_Time</th>'+
+		N'<th>Comment</th>'+
+	  
+    CAST ( ( 
+				SELECT TOP(@lastNmin)
+		td = SQLProcessUtilization ,'' , 
+		td =DATEADD(ms,-1 *(@ts - [timestamp]),GETDATE()) ,'' , 
+	td=	case when SQLProcessUtilization > 80 then 'Warning'
+		else 'Good'
+		end ,''
+FROM (SELECT record.value('(./Record/@id)[1]','int')AS record_id, 
+record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]','int')AS [SystemIdle], 
+record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]','int')AS [SQLProcessUtilization], 
+[timestamp]      
+FROM (SELECT[timestamp], convert(xml, record) AS [record]             
+FROM sys.dm_os_ring_buffers             
+WHERE ring_buffer_type =N'RING_BUFFER_SCHEDULER_MONITOR'AND record LIKE'%%')AS x )AS y 
+ORDER BY record_id DESC
+  FOR XML PATH('tr'), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N'</table>' 
+
+--
+
+--Memory Information
+SET @tableHTML = @tableHTML+ 
+	N'<H1 style="font-size:Medium;font-family:Calibri;">Memory Information: '' </H1>' +    
+    N'<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >' +    
+    N'<th>counter_name</th>'+
+	N'<th>cntr_value</th>'+
+		N'<th>Comment</th>'+
+	  
+    CAST ( ( 
+					select td =counter_name,'',
+					td=cntr_value,'',
+					td=case  when cntr_value < 500 then 'Memory Pressure'
+else 'Good'
+end,''
+
+FROM sys.dm_os_performance_counters
+WHERE [object_name] LIKE '%Manager%'
+AND [counter_name] = 'Page life expectancy'
+  FOR XML PATH('tr'), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N'</table>' 
+
+
+SELECT
+[counter_name],
+[cntr_value],
+case  when cntr_value < 500 then 'Memory Pressure'
+else 'Good'
+end as Memory_Comments 
+FROM sys.dm_os_performance_counters
+WHERE [object_name] LIKE '%Manager%'
+AND [counter_name] = 'Page life expectancy'
+
+EXEC msdb.dbo.sp_send_dbmail      
+    @profile_name = 'DBMail Public Profile',    
+    @recipients ='JoseMaria.Galeano8@T-Mobile.com',
+    /*@copy_recipients = 'JoseMaria.Galeano8@T-Mobile.com',      */
+    @body = @tableHTML,      
+    @body_format = 'HTML',      
+    @importance = 'High',    
+    @subject = @sub;
+
+
+/* EXEC msdb.dbo.sp_send_dbmail      
+    @profile_name = 'DBMail Public Profile',    
+    @recipients ='TEQDSDatabaseEngineering-SQLServerTier1@T-Mobile.com;teqdatabaseengineering-sqlserver@t-mobile.com;HCLCFSCreditOps-Offshore@T-Mobile.com;muthukumar.lakshmanan9@t-mobile.com',
+    @copy_recipients = 'Jonathan.Manago@t-mobile.com',      
+    @body = @tableHTML,      
+    @body_format = 'HTML',      
+    @importance = 'High',    
+    @subject = @sub;
+*/
+
+-- Criar o job para agendar o health check
+
+USE [msdb]
+GO
+
+/****** Object:  Job [DBA_NPI_Healthcheck]    Script Date: 1/1/2025 4:43:36 AM ******/
+BEGIN TRANSACTION
+DECLARE @ReturnCode INT
+SELECT @ReturnCode = 0
+/****** Object:  JobCategory [[Uncategorized (Local)]]    Script Date: 1/1/2025 4:43:36 AM ******/
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'[Uncategorized (Local)]' AND category_class=1)
+BEGIN
+EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'[Uncategorized (Local)]'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+
+END
+
+DECLARE @jobId BINARY(16)
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'DBA_NPI_Healthcheck', 
+		@enabled=1, 
+		@notify_level_eventlog=0, 
+		@notify_level_email=0, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'No description available.', 
+		@category_name=N'[Uncategorized (Local)]', 
+		@owner_login_name=N'CISAdmin', @job_id = @jobId OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [Step1]    Script Date: 1/1/2025 4:43:36 AM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'Step1', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'TSQL', 
+		@command=N'SET QUOTED_IDENTIFIER ON
+SET NOCOUNT ON    
+    
+DECLARE @tableHTML  NVARCHAR(MAX),@sub varchar(100)
+
+SET @sub=''CFAM PRIMARY(PPOLWCFAM00007) Health Check: ''+CONVERT(varchar, DATEADD(hour, DATEDIFF(hour, 0, GETDATE()), 0))   
+
+
+SET @tableHTML =    
+    N''<H1 style="font-size:Medium;font-family:Calibri;">SQL Server Information: ''+ ''  ''+'' </H1>'' +    
+    N''<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >'' +    
+    N''<tr><th>SQLNetworkName</th>''+
+	N''<th>MachineName</th>''+
+	N''<th>SQL Server Name</th>''+
+	N''<th>IsClustered</th>''+
+	N''<th>SQLService_Current_Node</th>'' +    
+	N''<th>Edition</th>'' +    
+	N''<th>Servicepack</th>'' +    
+	N''<th>InstanceName</th>'' +    
+	N''<th>ProductVersion</th>'' +    
+	N''<th>Serverversion</th>'' +       
+    CAST ( ( 
+					select td =@@servername , '''',   
+ td =CAST( SERVERPROPERTY(''MachineName'') AS NVARCHAR(128))  , '''',  
+ td =CAST( SERVERPROPERTY(''ServerName'')AS NVARCHAR(128))  , '''',  
+ td =CAST( SERVERPROPERTY(''IsClustered'') AS NVARCHAR(128))  , '''',  
+ td =CAST( SERVERPROPERTY(''ComputerNamePhysicalNetBIOS'')AS NVARCHAR(128)) , '''',  
+ td =serverproperty(''edition'')  , '''',  
+ td =serverproperty(''productlevel'')  , '''',  
+ td =CAST( SERVERPROPERTY(''InstanceName'') AS NVARCHAR(128))  , '''',  
+ td =SERVERPROPERTY(''Productversion'')  , '''', 
+ td=@@version, ''''	  
+  FOR XML PATH(''tr''), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N''</table>'' ;    
+
+
+	--SQL Server AGent Information Collection
+
+
+IF EXISTS (SELECT * FROM tempdb.dbo.sysobjects WHERE ID = OBJECT_ID(N''tempdb..#sql_agent_state''))
+BEGIN
+drop table #sql_agent_state
+    END
+    declare @sql_agent_service varchar(128),@state_sql_agent varchar(20)
+    create table #sql_agent_state(service_name varchar(128) default ''SQLAgent '' ,state varchar(20))
+    insert into #sql_agent_state(state) exec xp_servicecontrol N''querystate'',N''SQLServerAGENT''  
+    --select service_name as ServiceName, state as Status from #sql_agent_state
+    select service_name as ServiceName, replace(state,''.'','''') as Status from #sql_agent_state
+SET @tableHTML = @tableHTML+ 
+	N''<H1 style="font-size:Medium;font-family:Calibri;">SQL Server Agent Status: ''+ ''  ''+'' </H1>'' +    
+    N''<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >'' +    
+    N''<tr><th>ServiceName</th>''+
+	N''<th>Status</th>''+
+	  
+    CAST ( ( 
+					select td =service_name  , '''',   
+ td =replace(state,''.'',''''), '''' 
+	from #sql_agent_state  
+  FOR XML PATH(''tr''), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N''</table>'' ;    
+
+	--Database states
+declare @bkpchk varchar(10)
+declare @bkpcomm varchar(100)
+
+select  @bkpchk = sys.fn_hadr_backup_is_preferred_replica (name) from sys.databases where database_id =5
+
+if @bkpchk = 1 
+begin
+set @bkpcomm = ''Primary''
+end
+
+else 
+begin 
+
+set @bkpcomm = ''Secondary''
+end
+print @bkpcomm
+
+IF EXISTS (SELECT * FROM tempdb.dbo.sysobjects WHERE ID = OBJECT_ID(N''tempdb..#tmp_database''))
+BEGIN
+drop table #tmp_database
+END
+
+declare @count int
+declare @name varchar(128)
+declare @state_desc varchar(128)
+
+select @count = COUNT(*) from sys.databases where state_desc not in (''ONLINE'',''RESTORING'')
+create table #tmp_database (name nvarchar(128),state_desc nvarchar(128))
+if @count > 0
+		begin
+			Declare Cur1 cursor for select name,state_desc from sys.databases 
+			where state_desc not in (''ONLINE'',''RESTORING'')
+		open Cur1
+			FETCH NEXT FROM Cur1 INTO @name,@state_desc
+			WHILE @@FETCH_STATUS = 0
+				BEGIN
+					insert into #tmp_database values(@name,@state_desc)
+				FETCH NEXT FROM Cur1 INTO @name,@state_desc
+				END
+			CLOSE Cur1
+			DEALLOCATE Cur1
+		end
+else 
+	begin
+		insert into #tmp_database values(''ALL DATABASES '',''ONLINE'')
+	end
+	SET @tableHTML = @tableHTML+ 
+	N''<H1 style="font-size:Medium;font-family:Calibri;">Database Status: ''+ ''  ''+'' </H1>'' +    
+    N''<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >'' +    
+    N''<tr><th>DBName</th>''+
+	N''<th>state_desc</th>''+
+	N''<th>Backup_Prefered </th>''+
+	  
+    CAST ( ( 
+					select td =name  , '''',   
+ td =state_desc, '''',
+ td = @bkpcomm,''''
+	from #tmp_database  
+  FOR XML PATH(''tr''), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N''</table>'' ; 
+select name as DBName ,state_desc as DBStatus from #tmp_database
+
+
+--LogFile Utilization 
+
+CREATE TABLE #tlogtables
+(
+   databaseName   sysname,
+   logSize        DECIMAL (18, 5),
+   logUsed        DECIMAL (18, 5),
+   status         INT
+)
+
+INSERT INTO #tlogtables
+EXECUTE (''DBCC SQLPERF(LOGSPACE)'')
+SET @tableHTML = @tableHTML+ 
+	N''<H1 style="font-size:Medium;font-family:Calibri;">Log File Utilization Percentage: ''+ ''  ''+'' </H1>'' +    
+    N''<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >'' +    
+    N''<tr><th>DatabaseName</th>''+
+	    N''<th>LogSize</th>''+
+		N''<th>Percent_Utilization</th>''+
+	  
+    CAST ( ( 
+					select td = databaseName,'''',
+       td=logSize,'''',
+       td=logUsed,''''
+	  FROM #tlogtables where databasename not in (''master'',''msdb'',''model'')
+  FOR XML PATH(''tr''), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N''</table>'' ; 
+-- step_3: get T-logs exceeding threshold size for a specific database
+SELECT databaseName,
+       logSize,
+       logUsed,
+       status
+  FROM #tlogtables
+
+  Drop table #tlogtables
+
+--Blocking 
+
+SET @tableHTML = @tableHTML+ 
+	N''<H1 style="font-size:Medium;font-family:Calibri;">Blocking Information: ''+ ''  ''+'' </H1>'' +    
+    N''<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >'' +    
+    N''<tr><th>Blocking Count</th>''+
+	  
+    CAST ( ( 
+					select td =count (*),''''   
+
+from sys.sysprocesses where blocked <> 0 
+  FOR XML PATH(''tr''), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N''</table>'' ; 
+
+	select count (*) from sys.sysprocesses where blocked <> 0 
+
+	--Drive Space
+Create table #temp_drive (drivename varchar(10),size int)
+insert into #temp_drive
+EXEC XP_FIXEDDRIVES
+
+SET @tableHTML = @tableHTML+ 
+	N''<H1 style="font-size:Medium;font-family:Calibri;">Drive Information: ''+'' '' +'' </H1>'' +    
+    N''<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >'' +    
+    N''<tr><th>Drive Name</th>''+
+	N''<th>Free Space (GB)</th>''+
+	  
+    CAST ( ( 
+					select td =drivename,'''',
+					td=(size/1024),''''
+
+from #temp_drive 
+  FOR XML PATH(''tr''), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N''</table>'' ; 
+	select * from #temp_drive
+	drop table #temp_drive
+--CPU Information
+
+DECLARE @ts BIGINT;
+DECLARE @lastNmin TINYINT;
+SET @lastNmin = 1;
+SELECT @ts =(SELECT cpu_ticks/(cpu_ticks/ms_ticks) FROM sys.dm_os_sys_info); 
+SELECT TOP(@lastNmin)
+		SQLProcessUtilization AS [SQLServer_CPU_Utilization], 
+		DATEADD(ms,-1 *(@ts - [timestamp]),GETDATE())AS [Event_Time] ,
+		case when SQLProcessUtilization > 80 then ''Warning''
+		else ''Good''
+		end as Comment
+FROM (SELECT record.value(''(./Record/@id)[1]'',''int'')AS record_id, 
+record.value(''(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]'',''int'')AS [SystemIdle], 
+record.value(''(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]'',''int'')AS [SQLProcessUtilization], 
+[timestamp]      
+FROM (SELECT[timestamp], convert(xml, record) AS [record]             
+FROM sys.dm_os_ring_buffers             
+WHERE ring_buffer_type =N''RING_BUFFER_SCHEDULER_MONITOR''AND record LIKE''%%'')AS x )AS y 
+ORDER BY record_id DESC;
+
+
+SET @tableHTML = @tableHTML+ 
+	N''<H1 style="font-size:Medium;font-family:Calibri;">CPU Information: ''+'' ''+'' </H1>'' +    
+    N''<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >'' +    
+    N''<th>SQLServer_CPU_Utilization</th>''+
+	N''<th>Event_Time</th>''+
+		N''<th>Comment</th>''+
+	  
+    CAST ( ( 
+				SELECT TOP(@lastNmin)
+		td = SQLProcessUtilization ,'''' , 
+		td =DATEADD(ms,-1 *(@ts - [timestamp]),GETDATE()) ,'''' , 
+	td=	case when SQLProcessUtilization > 80 then ''Warning''
+		else ''Good''
+		end ,''''
+FROM (SELECT record.value(''(./Record/@id)[1]'',''int'')AS record_id, 
+record.value(''(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]'',''int'')AS [SystemIdle], 
+record.value(''(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]'',''int'')AS [SQLProcessUtilization], 
+[timestamp]      
+FROM (SELECT[timestamp], convert(xml, record) AS [record]             
+FROM sys.dm_os_ring_buffers             
+WHERE ring_buffer_type =N''RING_BUFFER_SCHEDULER_MONITOR''AND record LIKE''%%'')AS x )AS y 
+ORDER BY record_id DESC
+  FOR XML PATH(''tr''), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N''</table>'' 
+
+--
+
+--Memory Information
+SET @tableHTML = @tableHTML+ 
+	N''<H1 style="font-size:Medium;font-family:Calibri;">Memory Information: '''' </H1>'' +    
+    N''<table border="1" style="text-align:center;font-size:Small;font-family:Calibri;font-weight:normal;" cellspacing="0" cellpadding="0" width="90%" >'' +    
+    N''<th>counter_name</th>''+
+	N''<th>cntr_value</th>''+
+		N''<th>Comment</th>''+
+	  
+    CAST ( ( 
+					select td =counter_name,'''',
+					td=cntr_value,'''',
+					td=case  when cntr_value < 500 then ''Memory Pressure''
+else ''Good''
+end,''''
+
+FROM sys.dm_os_performance_counters
+WHERE [object_name] LIKE ''%Manager%''
+AND [counter_name] = ''Page life expectancy''
+  FOR XML PATH(''tr''), TYPE     
+    ) AS NVARCHAR(MAX) ) +    
+    N''</table>'' 
+
+
+SELECT
+[counter_name],
+[cntr_value],
+case  when cntr_value < 500 then ''Memory Pressure''
+else ''Good''
+end as Memory_Comments 
+FROM sys.dm_os_performance_counters
+WHERE [object_name] LIKE ''%Manager%''
+AND [counter_name] = ''Page life expectancy''
+
+
+
+EXEC msdb.dbo.sp_send_dbmail      
+    @profile_name = ''DBMail Public Profile'',    
+    @recipients =''TEQDSDatabaseEngineering-SQLServerTier1@T-Mobile.com;teqdatabaseengineering-sqlserver@t-mobile.com;HCLCFSCreditOps-Offshore@T-Mobile.com;muthukumar.lakshmanan9@t-mobile.com'',
+    @copy_recipients = ''Jonathan.Manago@t-mobile.com'',      
+    @body = @tableHTML,      
+    @body_format = ''HTML'',      
+    @importance = ''High'',    
+    @subject = @sub;', 
+		@database_name=N'master', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule @job_id=@jobId, @name=N'Healthcheck', 
+		@enabled=1, 
+		@freq_type=4, 
+		@freq_interval=1, 
+		@freq_subday_type=8, 
+		@freq_subday_interval=1, 
+		@freq_relative_interval=0, 
+		@freq_recurrence_factor=0, 
+		@active_start_date=20230914, 
+		@active_end_date=99991231, 
+		@active_start_time=0, 
+		@active_end_time=235959, 
+		@schedule_uid=N'c1ed6901-ed6c-47fa-89ca-c5866ca57d28'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+COMMIT TRANSACTION
+GOTO EndSave
+QuitWithRollback:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave:
+GO
+
+
+-------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------
+
+
+
+
+
