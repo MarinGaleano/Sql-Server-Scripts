@@ -1,0 +1,57 @@
+
+To restore a TDE-encrypted database from one SQL Server 2016 instance to another, you must restore the TDE certificate and its private key on the target server before restoring the database. If the certificate isn't available, the database cannot be opened after restore.
+
+✅ Step-by-Step: Restore TDE-Encrypted Database to Another Server
+🔒 1. On the Source Server: Backup the TDE Certificate and Private Key
+Replace MyTDECert and file paths with your actual certificate name and paths.
+
+USE master;
+BACKUP CERTIFICATE MyTDECert
+TO FILE = 'C:\Backup\MyTDECert.cer'
+WITH PRIVATE KEY (
+    FILE = 'C:\Backup\MyTDECertPrivateKey.pvk',
+    ENCRYPTION BY PASSWORD = 'StrongPassword123!'
+);
+✅ Copy both files (.cer and .pvk) to the target server securely.
+
+📤 2. On the Target Server: Create the Certificate from Backup
+This must be done before restoring the encrypted database.
+
+USE master;
+CREATE CERTIFICATE MyTDECert
+FROM FILE = 'C:\Backup\MyTDECert.cer'
+WITH PRIVATE KEY (
+    FILE = 'C:\Backup\MyTDECertPrivateKey.pvk',
+    DECRYPTION BY PASSWORD = 'StrongPassword123!'
+);
+The certificate name must match the one used in the original database, or you can restore it with a different name if needed — the thumbprint matters, not the name.
+
+
+🗃️ 3. Now Restore the TDE-Encrypted Database
+
+RESTORE DATABASE YourDatabaseName
+FROM DISK = 'C:\Backup\YourDatabase.bak'
+WITH MOVE 'YourDatabase_Data' TO 'C:\SQLData\YourDatabase.mdf',
+     MOVE 'YourDatabase_Log' TO 'C:\SQLData\YourDatabase_log.ldf'
+	 STATS = 10
+	 ;
+🟢 If the certificate is correctly restored, SQL Server will automatically use it to decrypt the Database Encryption Key (DEK) during restore.
+
+
+🔍 4. Verify TDE is Working on the Restored Database
+
+USE YourDatabaseName;
+SELECT * FROM sys.dm_database_encryption_keys;
+You should see:
+
+encryption_state = 3 → Encrypted
+
+The correct encryptor_thumbprint tied to your certificate
+
+🛑 Common Errors
+"Cannot find server certificate with thumbprint..."
+→ The certificate wasn't restored properly.
+
+"The certificate, asymmetric key, or private key file is not valid or does not exist."
+→ Wrong file path or password during certificate restore.
+
