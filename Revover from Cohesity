@@ -1,0 +1,55 @@
+--Restore from Cohesity - Restore to New database on same server
+
+1-  Identificar o nome do cluster e a politica de backup
+	- Para isso buscar no email o seguinte thread: "Cohesity: Daily SQLDB Run Report" , abir a planilha anexa, buscar o nome do servidor e copiar o jobname que é o nome da politica ex:
+	ClusterName	JobName								ClientName
+	PXCOBKP0103	PX0103_1800_PRD_SQLDB_LOG_copy_only	PPOLWANPS0000C
+	
+2- Entrar no cohesithy
+	Helios can be accessed from URL https://helios.cohesity.com/  using web browser.
+	Click on 'Sign in with SSO'
+	provide your T-mobile Email ID
+	ex:- yourname@t-mobile.co
+   
+3- Selecionar Protection e Data Protection
+
+4- Selecionar o cluster ( do item 1) 
+
+5- Em data Protection Selecionar RECOVERIES
+
+6- No canto superior direito, click em RECOVERIES
+
+7- Selecionar DATABASES/MS SQL
+
+8- Colar o nome da politica (item 1) e aguardar o refresh automatico da tela
+
+9- Selecionar o período para busca dos backups efetuados, por ex: Entre 30-Out e 02-Nov, assim será listado os backups disponiveis
+
+10- Selecionar o database que se deseja restaurar e aguardar o refresh automatico da tela
+
+11- No canto esquerdo click no "Lapis" e selecionar o Recoveru Point (data q se quer restaurar)
+
+12- Click em RECOVERY OPTIONS
+
+13- ATENCAO - Selecionar o target, se é OVERWRITE ou RECOVERY AS NEW Database (Selecionar RECOVERY AS NEW que é este exemplo)
+
+14- Colocar o nome da instancia de destino ou selecionar RESTORE to ORIGINAL Sql Server Instance (Normalmente é original)
+
+15- colocar os datafile paths, para isso se possivel, entrar no database original, e fazel um select * from sys.database_files, usar somente o datafile path, sem o nome do arquivo ex: 
+	G:\MSSQL13.PRD\MSSQL\DATA
+	e
+	I:\MSSQL13.PRD\MSSQL\DATA	
+	
+16- Em RENAME, selecionar RENAME INDIVIDUAL OBJECTS e colocar o nome do novo banco de dados, ex: NEW_DB_<data_seelcionada_do_restore>, assim ele vai criar o novo banco de dados e tbm usar o novo nome para criar os 
+datafiles e logfiles sem sobrescever o original.
+
+17- Click em recover para inicar o job
+
+18- Na tela seguinte pode se acompanhar o status do job e detalhes tbm clicandk em cima do nome do job
+
+
+-  
+
+
+- 
+	
