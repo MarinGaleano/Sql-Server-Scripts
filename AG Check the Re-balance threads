@@ -1,0 +1,25 @@
+select db_name(database_id) as dbname, command, session_id , *
+from sys.dm_exec_requests
+where command in('PARALLEL REDO HELP TASK', 'PARALLEL REDO TASK', 'DB STARTUP')
+order by 1
+--and database_id= db_id('SelfService_Prod')
+
+ 
+
+select * from sys.dm_hadr_ag_threads
+
+ 
+
+--Enable single thread
+DBCC TRACEON (3459, -1);
+GO
+
+ 
+
+--Disable  single thread, backing to parallel threads
+DBCC TRACEOFF (3459, -1);
+GO
+
+ 
+
+select * from  sys.dm_hadr_db_threads order by name asc
