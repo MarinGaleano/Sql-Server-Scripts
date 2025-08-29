@@ -22,8 +22,8 @@ FROM sys.dm_db_log_space_usage;
 
 --Check on AG Dasborad for latency:
 Usar as columnas sync performance sec 
-Log send queue size
-Log send rate ( usar estes 2 ultimos para estimar qto tempo para processar a fila
+Redo_Queue_Size_KB
+Redo_Rate_KBps
 Last commit time para ver de qual tempo passado são os logs enviados
 
 --Para listar na maquina prymary o queue size o send rate e o estimated log_send_completion_time
@@ -139,11 +139,12 @@ ORDER BY AG_Name, Database_Name;
 
 ------------------------------------------------------
 -- Mais dados informativos do log send
+-- Este rodar no secudario q está apicando os logs
 SELECT 
     d.name AS database_name,
     drs.database_id,
-    drs.redo_queue_size,
-    drs.redo_rate,
+    drs.redo_queue_sizeKB,
+    drs.redo_rateKB,
     drs.last_redone_time,
     drs.last_commit_time,
     drs.is_suspended,
@@ -159,7 +160,8 @@ ORDER BY d.name;
 ------------------------------------
 -- para listar os threads HADR para cada database no nó secundario q está recebendo os logs
 --rodar no node secundário
- 
+
+-- para contar os hdr por database 
 select db_name(database_id) as dbname, count(*)
 from sys.dm_exec_requests
 where 1=1
@@ -187,6 +189,8 @@ ALTER DATABASE [YourDatabaseName] SET HADR RESUME;
 This is the best method to reset AG-related threads (including redo worker threads) without downtime.
 
 ---------------------------
+-- Dica do bruno caso os HDRs nao tenham sido todos iniciados
+
 Use Trace Flag 3459 for Diagnostics
 You're already aware of this — TF 3459 doesn't fix but helps diagnose stuck redo by forcing logging for long redo operations.
 
@@ -214,6 +218,7 @@ SELECT *
 FROM sys.dm_hadr_database_replica_states
 WHERE is_local = 1;
 
+-- when check for HDR redo apply performance goto the secondary database always
 -- Monitor thread performance
 If redo_rate is low and redo_queue_size is growing, the redo thread is not keeping up.
 
@@ -234,7 +239,7 @@ FROM sys.dm_os_wait_stats
 WHERE wait_type LIKE 'REDO%';
 
 -- Check HADR Threads in Use
-
+-- use on the secondary
 SELECT 
     r.session_id,
     r.status,
@@ -252,9 +257,10 @@ SELECT
 FROM sys.dm_exec_requests r
 JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
 WHERE 
-    r.command LIKE '%HADR%' OR 
+    (r.command LIKE '%HADR%' OR 
     r.command LIKE '%REDO%' OR 
-    r.command LIKE '%DB STARTUP%';
+    r.command LIKE '%DB STARTUP%')
+	and DB_NAME(r.database_id)='TAD91' ;
 
 
 
