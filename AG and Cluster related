@@ -46,7 +46,6 @@ EXEC xp_readerrorlog 0, 1, N'Role of availability group', NULL, NULL, NULL, 'DES
 
 ---------------------------------------------------------------------------------
 --Lista progresso de envio para syncronismo das bases
---Lista progresso de envio para syncronismo das bases
 ---Estas 2 o bruno melhor:
 
 ultima do Bruno, qery de ag aplicando redo e HDR threads o de threads tem q usar no segundario somente.
@@ -173,15 +172,21 @@ WHERE drs.is_local = 0  -- Foca nos dados da réplica secundária
 ORDER BY AG_Name, Database_Name;
 
 
+
 ---------------------------------------------------------------------------------
---Lista velocidade e estatus da transferencia de bases
+-- Lists os processos de HDR abertos para aplicar os logs, especificar o database name:
+-- Rodar no no secndario q está aplicando os logs
+-- o Sql server abre sempre 18 threads de HDR para cada database independente do numero de CPUs
+-- pode usar o filtro por database name
 
-select local_database_name
-, remote_machine_name,role_desc ,internal_state_desc 
-,transfer_rate_bytes_per_second/1024/1024 as transfer_rate_MB_per_second ,transferred_size_bytes/1024/1024 as transferred_size_MB
-,database_size_bytes/1024/1024/1024/1024 as Database_Size_TB,
-is_compression_enabled     from sys.dm_hadr_physical_seeding_stats
+select db_name(database_id) as dbname, database_id, session_id, start_time, status, command, wait_type, wait_time, blocking_session_id, wait_resource
+from sys.dm_exec_requests
+where 1=1
+and command in('PARALLEL REDO HELP TASK', 'PARALLEL REDO TASK', 'DB STARTUP')
+and database_id= db_id('TAD91')
 
+
+---------------------------------------------------------------------------------
 
 ---------------------------------------------------------------------------------
 --AG Diagnostics from Bruno
@@ -613,9 +618,6 @@ January 21, 2021 by Rajendra Gupta
 https://www.sqlshack.com/synchronize-logins-between-availability-replicas-in-sql-server-always-on-availability-group/
 
 
-
-
--------------------------------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------------------------------
 To add a database to an Always On Availability Group (AG) in SQL Server when it is in RESTORING state on the replicas, 
 follow the correct sequence to prepare the database and join it to the AG. The RESTORING state is expected on secondary replicas before adding the database.
@@ -668,8 +670,10 @@ Copy
 Edit
 ALTER DATABASE [YourDatabaseName]
 SET HADR AVAILABILITY GROUP = [YourAGName];
-
 ✅ Verify Status:
+sql
+Copy
+Edit
 -- Run on all replicas
 SELECT 
     ag.name AS AGName,
