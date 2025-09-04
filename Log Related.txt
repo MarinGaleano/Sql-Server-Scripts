@@ -1,0 +1,362 @@
+-- logspace usage
+
+use <database name>
+select * from sys.dm_db_log_space_usage
+
+-- or
+
+DBCC SQLPERF(LOGSPACE)
+
+---------------------------------------------------------------------------------
+-- Check Log Reuse Wait Reason
+To see why truncation is not happening, run:
+
+
+SELECT name, log_reuse_wait_desc
+FROM sys.databases
+WHERE name = 'YourDatabase';
+
+log_reuse_wait_desc value	Meaning
+ACTIVE_TRANSACTION	Open transaction preventing truncation
+LOG_BACKUP	Need a log backup (FULL/BULK mode)
+REPLICATION	Replication needs log records
+AVAILABILITY_REPLICA	AG replica hasn't synced
+NOTHING	Truncation is not being blocked
+---------------------------------------------------------------------------------
+-- List open transactions
+
+DBCC OPENTRAN;
+
+
+--6. Long-Running Cursor or Query
+Cause: Cursors or queries that span multiple transactions can hold up log truncation.
+Check: Use:
+
+SELECT * FROM sys.dm_exec_requests WHERE command = 'FETCH';
+
+--Replication (Transactional or Change Data Capture)
+Cause: The log is needed by replication or CDC and hasn’t been marked as processed.
+
+Fix: Check:
+EXEC sp_repltrans;
+EXEC sys.sp_cdc_get_captured_columns;
+
+---------------------------------------------------------------------------------
+
+-- logfile count per database
+
+SELECT name AS 'Database Name', total_vlf_count AS 'VLF count' 
+FROM sys.databases AS s
+CROSS APPLY sys.dm_db_log_stats(s.database_id) 
+WHERE total_vlf_count  >= 1;
+
+---------------------------------------------------------------------------------
+-- list databases last transaction log backups time
+
+SELECT name AS 'Database Name', log_backup_time AS 'last log backup time' 
+FROM sys.databases AS s
+CROSS APPLY sys.dm_db_log_stats(s.database_id); 
+
+---------------------------------------------------------------------------------
+Determinar a quantidade de espaço livre de log no tempdb
+
+USE tempdb;  
+GO  
+SELECT 
+(total_log_size_in_bytes - used_log_space_in_bytes)*1.0/1024/1024 AS [free log space in MB]  
+FROM sys.dm_db_log_space_usage; 
+
+---------------------------------------------------------------------------------
+--Acompanhar uso de log
+
+log_reuse_wait_desc from sys.databases
+DBCC SQLPERF(LOGSPACE)
+
+-- logspace in GB
+SELECT
+    total_log_size_in_bytes / 1024.0 / 1024 / 1024 AS total_log_size_GB,
+    used_log_space_in_bytes / 1024.0 / 1024 / 1024 AS used_log_space_GB,
+    (total_log_size_in_bytes - used_log_space_in_bytes) / 1024.0 / 1024 / 1024 AS free_log_space_GB,
+    (used_log_space_in_bytes * 1.0 / total_log_size_in_bytes) * 100 AS used_percent
+FROM sys.dm_db_log_space_usage;
+
+---------------------------------------------------------------------------------
+Acompanhar crescimento de log:
+
+USE master
+GO
+ 
+SELECT 
+    req.session_id, 
+    database_name = db_name(req.database_id),
+    req.status,
+    req.blocking_session_id, 
+    req.command,
+    [sql_text] = Substring(txt.TEXT, (req.statement_start_offset / 2) + 1, (
+                (
+                    CASE req.statement_end_offset
+                        WHEN - 1 THEN Datalength(txt.TEXT)
+                        ELSE req.statement_end_offset
+                    END - req.statement_start_offset
+                    ) / 2
+                ) + 1),
+    req.percent_complete,
+    req.start_time,
+    cpu_time_sec = req.cpu_time / 1000,
+    granted_query_memory_mb = CONVERT(NUMERIC(8, 2), req.granted_query_memory / 128.),
+    req.reads,
+    req.logical_reads,
+    req.writes,
+    eta_completion_time = DATEADD(ms, req.[estimated_completion_time], GETDATE()),
+    elapsed_min = CONVERT(NUMERIC(6, 2), req.[total_elapsed_time] / 1000.0 / 60.0),
+    remaning_eta_min = CONVERT(NUMERIC(6, 2), req.[estimated_completion_time] / 1000.0 / 60.0),
+    eta_hours = CONVERT(NUMERIC(6, 2), req.[estimated_completion_time] / 1000.0 / 60.0/ 60.0),
+    wait_type,
+    wait_time_sec = wait_time/1000, 
+    wait_resource
+FROM sys.dm_exec_requests as req WITH(NOLOCK)
+    CROSS APPLY sys.dm_exec_sql_text(req.sql_handle) as txt 
+WHERE req.session_id>50
+    AND command IN ('BACKUP DATABASE', 'BACKUP LOG', 'RESTORE DATABASE', 'RESTORE LOG')
+	
+	
+---------------------------------------------------------------------------------
+--Verificar espaço em log
+SELECT
+rtrim(name) as name,
+((size)/128.0) as 'size in MB',
+((size)/128.0) - CAST(FILEPROPERTY(name, 'SpaceUsed') AS int)/128.0 AS AvailableSpaceInMB,((((size)/128.0) -  CAST(FILEPROPERTY(name, 'SpaceUsed') AS int)/128.0) / ((size)/128.0)) * 100 as '% Available',
+filename
+FROM sysfiles
+
+--Determine a posição do último VLF no log de transações antes de reduzir o arquivo de log
+https://learn.microsoft.com/pt-br/sql/relational-databases/system-dynamic-management-views/sys-dm-db-log-info-transact-sql?view=sql-server-ver16
+
+no contexto de banco de dados:
+
+USE YourDatabase;
+GO
+
+;WITH cte_vlf AS (
+SELECT ROW_NUMBER() OVER(ORDER BY vlf_begin_offset) AS vlfid, DB_NAME(database_id) AS [Database Name], vlf_sequence_number, vlf_active, vlf_begin_offset, vlf_size_mb
+    FROM sys.dm_db_log_info(DEFAULT)),
+cte_vlf_cnt AS (SELECT [Database Name], COUNT(vlf_sequence_number) AS vlf_count,
+    (SELECT COUNT(vlf_sequence_number) FROM cte_vlf WHERE vlf_active = 0) AS vlf_count_inactive,
+    (SELECT COUNT(vlf_sequence_number) FROM cte_vlf WHERE vlf_active = 1) AS vlf_count_active,
+    (SELECT MIN(vlfid) FROM cte_vlf WHERE vlf_active = 1) AS ordinal_min_vlf_active,
+    (SELECT MIN(vlf_sequence_number) FROM cte_vlf WHERE vlf_active = 1) AS min_vlf_active,
+    (SELECT MAX(vlfid) FROM cte_vlf WHERE vlf_active = 1) AS ordinal_max_vlf_active,
+    (SELECT MAX(vlf_sequence_number) FROM cte_vlf WHERE vlf_active = 1) AS max_vlf_active
+    FROM cte_vlf
+    GROUP BY [Database Name])
+SELECT [Database Name], vlf_count, min_vlf_active, ordinal_min_vlf_active, max_vlf_active, ordinal_max_vlf_active,
+((ordinal_min_vlf_active-1)*100.00/vlf_count) AS free_log_pct_before_active_log,
+((ordinal_max_vlf_active-(ordinal_min_vlf_active-1))*100.00/vlf_count) AS active_log_pct,
+((vlf_count-ordinal_max_vlf_active)*100.00/vlf_count) AS free_log_pct_after_active_log
+FROM cte_vlf_cnt;
+GO
+
+--or
+USE YourDatabase;
+GO
+
+DECLARE @dbid INT = DB_ID();
+
+;WITH VLFs AS (
+    SELECT 
+        file_id,
+        vlf_begin_offset,
+        vlf_size_mb,
+        vlf_begin_offset + CAST(vlf_size_mb AS BIGINT) * 1024 * 1024 AS vlf_end_offset
+    FROM sys.dm_db_log_info(@dbid)
+),
+LastVLF AS (
+    SELECT TOP 1 
+        file_id,
+        vlf_end_offset
+    FROM VLFs
+    ORDER BY vlf_end_offset DESC
+)
+SELECT 
+    f.name AS LogFileName,
+    f.size * 8 / 1024 AS FileSizeMB,
+    (CAST(f.size AS BIGINT) * 8 * 1024) - m.vlf_end_offset AS FreeBytesAfterLastVLF,
+    ((CAST(f.size AS BIGINT) * 8 * 1024) - m.vlf_end_offset) / 1024 AS FreeKB_AfterLastVLF,
+    ((CAST(f.size AS BIGINT) * 8 * 1024) - m.vlf_end_offset) / (1024.0*1024) AS FreeMB_AfterLastVLF
+FROM sys.database_files f
+JOIN LastVLF m ON f.file_id = m.file_id
+WHERE f.type_desc = 'LOG';
+
+
+--List vLF sizes
+
+
+SELECT 
+    vlf_sequence_number,
+    vlf_size_mb,
+    vlf_status,
+    CASE vlf_status
+        WHEN 0 THEN 'Inactive'
+        WHEN 1 THEN 'Active'
+        WHEN 2 THEN 'Reusable'
+        ELSE 'Unknown'
+    END AS vlf_status_desc
+FROM sys.dm_db_log_info(DB_ID('YourDatabase'))
+ORDER BY vlf_sequence_number
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Para consguir fazer o shirink, usar os passsos abaixo:
+
+
+--somente informativo, verificar as transacoes abertas
+dbcc opentran
+
+-- usar em caso de log o tempdb.. mas usar com cautela pois vai limpar cache e planos de execução
+DBCC DROPCLEANBUFFERS;
+GO
+DBCC FREEPROCCACHE;
+GO
+
+--para poder efetuar o shirink no logfile do database
+1-- use o checkpoint para forçar a escrita dos vlfs no disco, run on database coneext.
+CHECKPOINT
+
+2-- recuperar o dbid para as demais queries
+select DB_ID('cyberarkprd')
+
+3-- listar os arquivos de VLF, o vlf active=1 + vlf status=2 indica o ultimo vlf ativo no logfile
+No contexto do database
+
+DBCC SQLPERF(LOGSPACE)
+
+select * from sys.dm_db_log_info(DB_ID())
+ 
+select file_id, vlf_active, COUNT(*)
+from sys.dm_db_log_info(DB_ID())
+group by file_id, vlf_active
+
+4--Depois do checkpoint ou de verificar a posicao do VLF impeditivo, RODAR o BCK LOG no cyberark,  e repetir a operacao para poder esvaziar mais o log com o shirink.
+--No contexto do database
+
+USE [CyberArkPRD]
+GO
+-- colocar o nome do logfile
+DBCC SHRINKFILE (N'CyberArkPRD_log' , 0, TRUNCATEONLY)
+GO
+-- verificar o espaço de log 
+DBCC SQLPERF(LOGSPACE)
+
+--- usar esta query para listar os logical name para os logfiles
+SELECT name FROM sys.master_files 
+WHERE database_id = DB_ID('YourDatabase') AND type_desc = 'LOG';
+
+
+
+-- outras queries
+
+-- Verificar o last log backup
+-- informativo 
+SELECT name AS 'Database Name', log_backup_time AS 'last log backup time' 
+FROM sys.databases AS s
+CROSS APPLY sys.dm_db_log_stats(s.database_id);
+
+--Alternativa tem esta query que tbm list o espaço livre após o ultimo vlf em uso
+;WITH cte_vlf AS (
+SELECT ROW_NUMBER() OVER(ORDER BY vlf_begin_offset) AS vlfid, DB_NAME(database_id) AS [Database Name], vlf_sequence_number, vlf_active, vlf_begin_offset, vlf_size_mb
+    FROM sys.dm_db_log_info(DEFAULT)),
+cte_vlf_cnt AS (SELECT [Database Name], COUNT(vlf_sequence_number) AS vlf_count,
+    (SELECT COUNT(vlf_sequence_number) FROM cte_vlf WHERE vlf_active = 0) AS vlf_count_inactive,
+    (SELECT COUNT(vlf_sequence_number) FROM cte_vlf WHERE vlf_active = 1) AS vlf_count_active,
+    (SELECT MIN(vlfid) FROM cte_vlf WHERE vlf_active = 1) AS ordinal_min_vlf_active,
+    (SELECT MIN(vlf_sequence_number) FROM cte_vlf WHERE vlf_active = 1) AS min_vlf_active,
+    (SELECT MAX(vlfid) FROM cte_vlf WHERE vlf_active = 1) AS ordinal_max_vlf_active,
+    (SELECT MAX(vlf_sequence_number) FROM cte_vlf WHERE vlf_active = 1) AS max_vlf_active
+    FROM cte_vlf
+    GROUP BY [Database Name])
+SELECT [Database Name], vlf_count, min_vlf_active, ordinal_min_vlf_active, max_vlf_active, ordinal_max_vlf_active,
+((ordinal_min_vlf_active-1)*100.00/vlf_count) AS free_log_pct_before_active_log,
+((ordinal_max_vlf_active-(ordinal_min_vlf_active-1))*100.00/vlf_count) AS active_log_pct,
+((vlf_count-ordinal_max_vlf_active)*100.00/vlf_count) AS free_log_pct_after_active_log
+FROM cte_vlf_cnt;
+GO
+
+
+---------
+-- (testar) Para testar, listar Sessions with Active Transactions and SQL Text 
+
+SELECT
+    s.session_id,
+    s.login_name,
+    s.status AS session_status,
+    r.status AS request_status,
+    r.command,
+    txt.text AS sql_text
+FROM sys.dm_exec_sessions s
+JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+JOIN sys.dm_tran_session_transactions st ON s.session_id = st.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS txt
+WHERE s.database_id = DB_ID();
+
+-- (Testar) Active Transactions with Session Info and Duration
+SELECT
+    s.session_id,
+    s.login_name,
+    s.status AS session_status,
+    r.status AS request_status,
+    r.command,
+    txt.text AS sql_text,
+    at.transaction_id,
+    at.transaction_begin_time,
+    DATEDIFF(MINUTE, at.transaction_begin_time, GETDATE()) AS transaction_duration_minutes
+FROM sys.dm_exec_sessions s
+JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+JOIN sys.dm_tran_session_transactions st ON s.session_id = st.session_id
+JOIN sys.dm_tran_active_transactions at ON st.transaction_id = at.transaction_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS txt
+WHERE s.database_id = DB_ID();
+
+-- Queries para verificar o q está segurando o log (log_reuse_wait_desc)
+
+-- dentr de um database em particular
+SELECT 
+    name AS database_name,
+    log_reuse_wait,
+    log_reuse_wait_desc
+FROM sys.databases
+WHERE name = DB_NAME();
+
+-- lista todos os databases
+SELECT 
+    name AS database_name,
+    recovery_model_desc,
+    log_reuse_wait,
+    log_reuse_wait_desc
+FROM sys.databases;
+
+
+-- lista o tamanho do log mais o log reuse wait desc
+SELECT 
+    d.name AS database_name,
+    d.recovery_model_desc,
+    ls.LogSizeMB,
+    ls.LogUsedPct,
+    d.log_reuse_wait_desc
+FROM sys.databases d
+JOIN (
+    SELECT 
+        database_id,
+        CAST(LogSizeMB AS DECIMAL(10,2)) AS LogSizeMB,
+        CAST(LogSpaceUsedPct AS DECIMAL(5,2)) AS LogUsedPct
+    FROM (
+        SELECT 
+            DB_NAME(database_id) AS dbname,
+            total_log_size_in_bytes / 1024.0 / 1024.0 AS LogSizeMB,
+            used_log_space_in_percent AS LogSpaceUsedPct,
+            database_id
+        FROM sys.dm_db_log_space_usage
+    ) x
+) ls ON d.database_id = ls.database_id
+ORDER BY LogUsedPct DESC;
+
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
