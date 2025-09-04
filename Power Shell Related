@@ -37,6 +37,20 @@ Ex:
 tnc prdsqlamag1 -Port 5500
 e
 tracert prdsqlamag1
+---------------------------------------------------------------------------------
+-- Get service aacount details all
+
+Get-ADServiceAccount -Identity gMSA_PSQL_SCRP -properties *
+
+-- or filter
+Get-ADServiceAccount -Identity gMSA_PSQL_SCRP -properties *| SELECT @{n='IsInSQLOu';e={stinguishedName -match "OU=SQL Accounts"}},Name,SamAccountName,WhenCreated,WhenChanged,PasswordLastSet,PwdLastSet,LgonDate,ModifyTimeStamp,PrincipalsAllowedToRetrieveManagedPassword,ManagedPasswordIntervalInDays,DistinguishedName
+
+-- Get AD account details:
+ Get-ADUser -Identity "jgalean8" -Properties * | Select-Object SamAccountName, DisplayName, Enabled, EmailAddress, PasswordNeverExpires, LockedOut, LastLogonDate
+ 
+-- or all details
+Get-ADUser -Identity "jgalean8" -Properties * 
+
 
 ---------------------------------------------------------------------------------
 --Script to monitor counters
@@ -434,4 +448,79 @@ Get-Service | Where-Object { $_.Name -like "MSSQL$*" -or $_.Name -eq "MSSQLSERVE
 
 PRD
 
+
+--------------------------------------------------------------------------------------------------------
+--List event viewr for a time window.
+
+You can filter Windows Event Logs in PowerShell by specifying the start and end time window.
+🔹 Notes:
+
+Replace System with another log name like "Application", "Security", or a custom log.
+
+If you want all logs, you can loop through log names with Get-WinEvent -ListLog *.
+
+If the logs are huge, use -FilterHashtable (much faster):
+
+# Define the time range explicitly
+$StartTime = Get-Date "25-Aug-2025 12:37 PM"
+$EndTime   = Get-Date "25-Aug-2025 12:39 PM"
+
+# Query System log as example
+Get-WinEvent -FilterHashtable @{
+    LogName   = 'System'
+    StartTime = $StartTime
+    EndTime   = $EndTime
+} | Select-Object TimeCreated, Id, LevelDisplayName, ProviderName, Message |
+  Format-Table -AutoSize
+
+# For all logs
+$StartTime = Get-Date "25-Aug-2025 12:37 PM"
+$EndTime   = Get-Date "25-Aug-2025 12:39 PM"
+
+
+Get-WinEvent -FilterHashtable @{ LogName='System'; StartTime=$StartTime; EndTime=$EndTime } |
+    Select-Object TimeCreated, Id, LevelDisplayName, ProviderName, Message
+
+--------------------------------------------------------------------------------------------------------
+--NEED TO VALIDATE
+
+For cluster and network-related logs, you’ll want to target the specific Windows Event Logs where those events are written.
+Typically these are:
+
+FailoverClustering → Microsoft-Windows-FailoverClustering/Operational
+
+NetworkProfile → Microsoft-Windows-NetworkProfile/Operational
+
+TCP/IP / Network Connectivity → Microsoft-Windows-TCPIP/Operational
+
+System log (network driver/service issues also show here)
+
+Here’s a PowerShell script to get only those logs between 25-Aug-2025 12:37 PM and 25-Aug-2025 12:39 PM:
+
+# Define the time range
+$StartTime = Get-Date "25-Aug-2025 12:37 PM"
+$EndTime   = Get-Date "25-Aug-2025 12:39 PM"
+
+# List of cluster and network-related logs
+$Logs = @(
+    "Microsoft-Windows-FailoverClustering/Operational",
+    "Microsoft-Windows-NetworkProfile/Operational",
+    "Microsoft-Windows-TCPIP/Operational",
+    "System"  # include System log for network/cluster driver errors
+)
+
+# Loop through logs and display events in the time window
+foreach ($Log in $Logs) {
+    Write-Host "`n==== $Log ====" -ForegroundColor Cyan
+
+    Get-WinEvent -FilterHashtable @{
+        LogName   = $Log
+        StartTime = $StartTime
+        EndTime   = $EndTime
+    } | Select-Object TimeCreated, Id, LevelDisplayName, ProviderName, Message |
+      Format-Table -AutoSize
+}
+
+
+👉 Do you want me to include Security log entries too (since cluster/network auth failures may appear there), or just keep it strictly cluster + network connectivity?
 
