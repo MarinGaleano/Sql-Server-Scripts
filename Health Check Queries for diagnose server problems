@@ -1,3 +1,8 @@
+--Verificar o uso de logs para todos os databases
+
+DBCC SQLPERF(LOGSPACE)
+
+
 --- List Hardware CPU count, memory and sql server start time
 
 SELECT
