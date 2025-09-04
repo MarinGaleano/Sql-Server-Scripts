@@ -3,3 +3,21 @@
 https://github.com/microsoft/CSS_SQL_Networking_Tools/wiki/SQLCHECK
 
 Download feito em: C:\Users\JGalean8\OneDrive - T-Mobile USA\Documents\TMO\SqlServer\Scripts\SQLCHECK.zip
+
+---------------------------------------------------------------------------------------------------
+-- Client server connectivity issues
+
+If it is local machine, check if szcaler is ON
+if it is USGCI server and all ports are open, it will not work for offshore user IDs
+on the server check if the service is OK and check wich port it is using
+for SSAS defaul instance port is 2383, if it is named instance, it will use the Sql server Broser service port 2382
+check the connectivity with the server an port using powershell prompt:
+	tnc ppolwscrp0000d -Port 2382
+
+Use the links to open a tkt for firewall and illumio	
+
+
+
+
+
+	
