@@ -8,7 +8,7 @@ https://confluencesw.t-mobile.com/display/STW/Azure+servers#Azureservers-Necessa
 -- Para login em banco Azure
 Utilizar o SSMS local, e logar no server, exemplo: PRDCDBWU2SQLMIDFDS02.04257ADBFBF9.DATABASE.WINDOWS.NET
 Utilizar autenticacao: Azure AD - Universal MFA  OU Microsoft Entra MFA
-Utilizar o login: ADM_JGalean8@T-Mobile.com
+Utilizar o login: ADM_JGalean8@T-Mobile.com ou josemaria.galeano8@t-mobile.com
 Verificar o MFa no celular ou usar o ubikey
 
 
