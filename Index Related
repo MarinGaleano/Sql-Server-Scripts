@@ -172,7 +172,7 @@ WHERE
 ORDER BY
     dm_db_index_usage_stats.user_updates DESC
 	
---The above query lists all unused queries that are not primary and unique keys, 
+--The above query lists all unused index that are not primary and unique keys, 
 but it also lists all unused indexes that SQL Server has not worked with. 
 The user_updates column in the dm_db_index_usage_stats DMV is counting where the 
 index was updated as the application has carried some changes to data, so the index was updated. 
@@ -216,6 +216,20 @@ FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, NULL) ixs
                                   AND ixs.index_id = ixs.index_id
 WHERE ixs.avg_fragmentation_in_percent > 30
 ORDER BY ixs.avg_fragmentation_in_percent DESC;
+
+--or
+
+SELECT db_name(database_id) as DBname, object_name(object_id) as ObjectName, avg_fragmentation_in_percent, page_count, *
+from sys.dm_db_index_physical_stats(null,null,null,null,null)
+
+-- Fragmentation for column store indexes, check the amount of deleted rows
+
+select deleted_rows, total_rows from sys.dm_db_column_store_row_group_physical_stats
+
+-- to Reorganize index, use alter index reorganize for fragmentation < 30% e use o rebuild with online option when fragmentation > 30% (recomended)
+for column store index you should reorganize where deleted rows > 20%.
+
+
 
 ---------------------------------------------------------------------------------
 -- Rebuild highly fragmented indexes: 
