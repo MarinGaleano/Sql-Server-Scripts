@@ -35,4 +35,35 @@ ou Get-Ciminstance -Classname Win32_Volume | Select-Object Name, Label, BiockSiz
 -- Listar portas abertas e processos
 netstat -aon
 
+-----------------------------------------------------------------------------------
+You can filter Windows Event Logs in PowerShell by specifying the start and end time window.
+🔹 Notes:
+
+Replace System with another log name like "Application", "Security", or a custom log.
+
+If you want all logs, you can loop through log names with Get-WinEvent -ListLog *.
+
+If the logs are huge, use -FilterHashtable (much faster):
+
+# Define the time range explicitly
+$StartTime = Get-Date "25-Aug-2025 12:37 PM"
+$EndTime   = Get-Date "25-Aug-2025 12:39 PM"
+
+# Query System log as example
+Get-WinEvent -FilterHashtable @{
+    LogName   = 'System'
+    StartTime = $StartTime
+    EndTime   = $EndTime
+} | Select-Object TimeCreated, Id, LevelDisplayName, ProviderName, Message |
+  Format-Table -AutoSize
+
+# For all logs
+$StartTime = Get-Date "25-Aug-2025 12:37 PM"
+$EndTime   = Get-Date "25-Aug-2025 12:39 PM"
+
+
+Get-WinEvent -FilterHashtable @{ LogName='System'; StartTime=$StartTime; EndTime=$EndTime } |
+    Select-Object TimeCreated, Id, LevelDisplayName, ProviderName, Message
+
+
 
