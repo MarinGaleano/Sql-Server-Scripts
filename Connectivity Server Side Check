@@ -14,7 +14,7 @@ for SSAS defaul instance port is 2383, if it is named instance, it will use the 
 check the connectivity with the server an port using powershell prompt:
 	tnc ppolwscrp0000d -Port 2382
 
-Use the links to open a tkt for firewall and illumio	
+Use the links to open a tkt for firewall and illumio	 
 
 
 
