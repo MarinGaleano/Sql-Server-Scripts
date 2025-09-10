@@ -1,0 +1,37 @@
+If you already have a query running, you can capture its plan using SET SHOWPLAN_XML or SET STATISTICS XML:
+-- Option 1: Show execution plan without running the query
+SET SHOWPLAN_XML ON;
+GO
+
+-- Paste your query here
+SELECT *
+FROM AdventureWorks.Sales.SalesOrderHeader
+WHERE CustomerID = 29890;
+
+GO
+SET SHOWPLAN_XML OFF;
+
+-- Option 2: Execute query and get actual execution plan
+SET STATISTICS XML ON;
+GO
+
+SELECT *
+FROM AdventureWorks.Sales.SalesOrderHeader
+WHERE CustomerID = 29890;
+
+GO
+SET STATISTICS XML OFF;
+
+2️⃣ If the query has already run and you want its plan from cache:
+DECLARE @sql_text NVARCHAR(MAX) = N'SELECT * FROM AdventureWorks.Sales.SalesOrderHeader WHERE CustomerID = 29890';
+
+SELECT 
+    qs.execution_count,
+    qs.total_worker_time,
+    qs.total_elapsed_time,
+    st.text AS query_text,
+    qp.query_plan
+FROM sys.dm_exec_query_stats AS qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
+WHERE st.text LIKE '%' + @sql_text + '%';
