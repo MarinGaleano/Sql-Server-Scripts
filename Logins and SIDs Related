@@ -473,6 +473,29 @@ FROM sys.server_principals SSPs
     WHERE SSPs.type_desc ='WINDOWS_GROUP'
 ORDER BY 3
 
+---------------------------------------------------------
+-- List last password change
+
+SELECT 
+    name AS LoginName,
+    create_date AS LoginCreated,
+    modify_date AS LoginLastModified,
+    CAST(LOGINPROPERTY(name, 'PasswordLastSetTime') AS DATETIME) AS PasswordLastChanged
+FROM sys.sql_logins
+ORDER BY PasswordLastChanged DESC;
+
+---------------------------------------------------------
+-- List windows policy for passwords
+-- on a domain server
+
+net accounts /domain
+
+-- on a stand alone server
+
+net accounts
+
+---------------------------------------------------------
+
 
 
 
