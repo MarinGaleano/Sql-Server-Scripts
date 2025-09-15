@@ -524,3 +524,13 @@ foreach ($Log in $Logs) {
 
 👉 Do you want me to include Security log entries too (since cluster/network auth failures may appear there), or just keep it strictly cluster + network connectivity?
 
+---------------------------------------------------------
+-- List windows policy for passwords
+-- on a domain server
+
+net accounts /domain
+
+-- on a stand alone server
+
+net accounts
+
