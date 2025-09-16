@@ -50,9 +50,11 @@ server permissions, server roles, db permissions, db roles.
 Export-DbaLogin
 Export-DbaLogin -SqlInstance sql2005 -Path C:\temp\sql2005-logins.sql
 -- Esses aqui funcionan, gera os logins a grants de roles
+
+Este --> Export-DbaLogin -SqlInstance "TCP:tpolwlcpr00001.gsm1900.org,50093" -FilePath D:\DBA\leaseC\DBA_logins1.txt
+
 Export-DbaLogin -SqlInstance "TCP:dpolwtkca00012,50053" -FilePath d:\temp\logins1
 Export-DbaLogin -SqlInstance "dpolwtkca00012,50053" -Path "d:\temp\"
-
 
 Export-DbaRegServer
 Export-DbaRepServerSetting
@@ -63,7 +65,8 @@ Export-DbaSysDbUserObject
 --Exports users creation and its permissions to a T-SQL file or host. Export includes user, create and add to role(s), database level permissions, object level permissions.
 Export-DbaUser
 
-
+este --> Export-DbaUser -SqlInstance  "TCP:tpolwlcpr00001.gsm1900.org,50093" -Database LeaseCalcPro_UAT -FilePath D:\DBA\leaseC\users.sql
+ 
 Export-DbaUser -SqlInstance "lpolwtkca00021,50052" -Database PICMDB02 -FilePath H:\SR041331307\users.sql
 Export-DbaUser -SqlInstance "dpolwladb0000b,50081" -Database siterra -FilePath H:\DBA\users.sql
 
