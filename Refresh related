@@ -1,4 +1,586 @@
 
+-- Refresh database to NPE
+
+-- Verificar se tem autorizacao do time de security para tranferir os dados.
+-- Fazer backup , mapear prod e dev no merlin, depois para o destino
+
+[10:43 AM] Martins, Bruno
+
+-- Export logins Esses aqui funcionan, gera os logins a grants de roles
+
+Este --> Export-DbaLogin -SqlInstance "TCP:tpolwlcpr00001.gsm1900.org,50093" -FilePath D:\DBA\leaseC\DBA_logins1.txt
+
+--Exports users creation and its permissions to a T-SQL file or host. Export includes user, create and add to role(s), database level permissions, object level permissions.
+Export-DbaUser
+
+este --> Export-DbaUser -SqlInstance  "TCP:tpolwlcpr00001.gsm1900.org,50093" -Database LeaseCalcPro_UAT -FilePath D:\DBA\leaseC\users.sql
+
+
+-- LPOLWTKCA00021
+--------------------------------------------------------------------------------------------------------
+USE [PICMDB01] 
+GO
+
+CREATE USER [SVC_LAB_ICMDB_RW] FOR LOGIN [SVC_LAB_ICMDB_RW]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [SVC_LAB_ICMDB_RW]
+GO
+CREATE USER [SVC_LAB_ICMDB_RO] FOR LOGIN [SVC_LAB_ICMDB_RO]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_LAB_ICMDB_RO]
+GO
+
+USE [PICMDB01]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\DYaraba1]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\RMagulu1]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\DYaraba1]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\RMagulu1]
+GO
+
+USE [PICMDB01]
+GO
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]
+GO
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+
+
+USE [msdb]
+GO
+ALTER USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly] WITH DEFAULT_SCHEMA=NULL
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+CREATE USER [SVC_LAB_ICMDB_RO] FOR LOGIN [SVC_LAB_ICMDB_RO]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_LAB_ICMDB_RO]
+GO
+
+use model 
+go
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_LAB_ICMDB_RO]
+go
+use tempdb
+go
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_LAB_ICMDB_RO]
+go
+use SQLsetupdb
+go
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_LAB_ICMDB_RO]
+go
+
+--------------------------------------------------------------------------------------------------------
+-- LPOLWTKCA00021
+
+USE [PICMDB02] 
+GO
+CREATE USER [SVC_LAB_ICMDB_RW] FOR LOGIN [SVC_LAB_ICMDB_RW]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [SVC_LAB_ICMDB_RW]
+GO
+CREATE USER [SVC_LAB_ICMDB_RO] FOR LOGIN [SVC_LAB_ICMDB_RO]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_LAB_ICMDB_RO]
+GO
+
+USE [PICMDB02]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\DYaraba1]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\RMagulu1]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\DYaraba1]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\RMagulu1]
+GO
+
+USE [PICMDB02]
+GO
+--CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]
+--GO
+ALTER ROLE [db_owner] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]
+GO
+--CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+--GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+--CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+--GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+
+USE [msdb]
+GO
+ALTER USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly] WITH DEFAULT_SCHEMA=NULL
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_LAB_ICMDB_RO]
+GO
+--------------------------------------------------------------------------------------------------------
+
+
+--TPOLWTKCA00001.gsm1900.org,50117\QICMDB03
+USE [QICMDB03]
+GO
+CREATE USER [SVC_TST_ICMDB_RO] FOR LOGIN [SVC_TST_ICMDB_RO] WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_TST_ICMDB_RO]
+GO
+
+USE [QICMDB01]
+GO
+
+GO
+CREATE USER [SVC_TST_ICMDB_RO] FOR LOGIN [SVC_TST_ICMDB_RO] WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_TST_ICMDB_RO]
+GO
+
+
+/****** Object:  User [SVC_TST_ICMDBUser]    Script Date: 1/13/2025 6:43:49 AM ******/
+CREATE USER [SVC_TST_ICMDBUser] FOR LOGIN [SVC_TST_ICMDBUser] WITH DEFAULT_SCHEMA=[dbo]
+GO
+alter role db_datareader add member [SVC_TST_ICMDBUser];
+GO
+
+
+/****** Object:  User [SVC_LAB_ICMDB_RW]    Script Date: 1/13/2025 6:53:05 AM ******/
+CREATE USER [SVC_LAB_ICMDB_RW] WITHOUT LOGIN WITH DEFAULT_SCHEMA=[dbo]
+GO
+
+alter role db_owner add member SVC_TST_ICMDBUser;
+go
+
+
+
+
+
+--DPOLWTKCA00012.gsm1900.org,50053\DICMDB02
+USE [DICMDB02]
+GO
+CREATE USER [SVC_DEV_ICMDB_RW] FOR LOGIN [SVC_DEV_ICMDB_RW] WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [SVC_DEV_ICMDB_RW]
+GO
+
+--CREATE USER [SVC_TST_ICMDB_RO] WITHOUT LOGIN WITH DEFAULT_SCHEMA=[dbo]
+--GO
+
+USE [DICMDB03]
+GO
+
+/****** Object:  User [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]    Script Date: 8/5/2025 2:11:35 PM ******/
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]
+GO
+
+USE [DICMDB03]
+GO
+
+/****** Object:  User [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]    Script Date: 8/5/2025 2:13:34 PM ******/
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+
+
+USE [DICMDB03]
+GO
+
+/****** Object:  User [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]    Script Date: 8/5/2025 2:12:33 PM ******/
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+
+
+USE [DICMDB03]
+GO
+/****** Object:  User [GSM1900\RMagulu1]    Script Date: 8/5/2025 2:05:56 PM ******/
+CREATE USER [GSM1900\RMagulu1] FOR LOGIN [GSM1900\RMagulu1] WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\RMagulu1]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\RMagulu1]
+GO
+
+USE [DICMDB03]
+GO
+/****** Object:  User [SVC_DEV_ICMDB_RW]    Script Date: 8/5/2025 2:09:21 PM ******/
+CREATE USER [SVC_DEV_ICMDB_RW] FOR LOGIN [SVC_DEV_ICMDB_RW] WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [SVC_DEV_ICMDB_RW]
+GO
+
+
+
+---QICMDB01
+USE [QICMDB01]
+GO
+
+/****** Object:  User [GSM1900\CA_Production_IGNITE]    Script Date: 8/26/2025 4:28:49 PM ******/
+CREATE USER [GSM1900\CA_Production_IGNITE] FOR LOGIN [GSM1900\CA_Production_IGNITE]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\CA_Production_IGNITE]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\CA_Production_IGNITE]
+GO
+
+USE [QICMDB01]
+GO
+
+/****** Object:  User [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]    Script Date: 8/26/2025 4:30:11 PM ******/
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [GSM1900\CA_Production_IGNITE]
+GO
+
+USE [QICMDB01]
+GO
+
+/****** Object:  User [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]    Script Date: 8/26/2025 4:30:53 PM ******/
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+
+USE [QICMDB01]
+GO
+
+/****** Object:  User [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]    Script Date: 8/26/2025 4:31:42 PM ******/
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+
+USE [QICMDB01]
+GO
+
+/****** Object:  User [GSM1900\RMagulu1]    Script Date: 8/26/2025 4:32:50 PM ******/
+CREATE USER [GSM1900\RMagulu1] FOR LOGIN [GSM1900\RMagulu1] WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\RMagulu1]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\RMagulu1]
+GO
+
+USE [QICMDB01]
+GO
+
+/****** Object:  User [SVC_LAB_ICMDB_RO]    Script Date: 8/26/2025 4:34:01 PM ******/
+CREATE USER [SVC_LAB_ICMDB_RO] WITHOUT LOGIN WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_LAB_ICMDB_RO]
+GO
+
+USE [QICMDB01]
+GO
+
+/****** Object:  User [SVC_LAB_ICMDB_RW]    Script Date: 8/26/2025 4:35:14 PM ******/
+CREATE USER [SVC_LAB_ICMDB_RW] WITHOUT LOGIN WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [SVC_LAB_ICMDB_RW]
+GO
+
+USE [QICMDB01]
+GO
+
+/****** Object:  User [SVC_TST_ICMDB_RO]    Script Date: 8/26/2025 4:36:27 PM ******/
+CREATE USER [SVC_TST_ICMDB_RO] FOR LOGIN [SVC_TST_ICMDB_RO] WITH DEFAULT_SCHEMA=[SVC_TST_ICMDB_RO]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_TST_ICMDB_RO]
+GO
+
+USE [QICMDB01]
+GO
+
+/****** Object:  User [SVC_TST_ICMDBUser]    Script Date: 8/26/2025 4:37:20 PM ******/
+CREATE USER [SVC_TST_ICMDBUser] FOR LOGIN [SVC_TST_ICMDBUser] WITH DEFAULT_SCHEMA=[dbo]
+GO
+
+ALTER ROLE [db_owner] ADD MEMBER [SVC_TST_ICMDBUser]
+GO
+
+
+
+
+
+
+---QICMDB04
+USE [QICMDB04]
+GO
+
+/****** Object:  User [GSM1900\CA_Production_IGNITE]    Script Date: 8/19/2025 8:44:33 AM ******/
+CREATE USER [GSM1900\CA_Production_IGNITE] FOR LOGIN [GSM1900\CA_Production_IGNITE]
+GO
+
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\CA_Production_IGNITE]
+GO
+
+USE [QICMDB04]
+GO
+
+/****** Object:  User [GSM1900\RMagulu1]    Script Date: 8/19/2025 8:46:53 AM ******/
+CREATE USER [GSM1900\RMagulu1] FOR LOGIN [GSM1900\RMagulu1] WITH DEFAULT_SCHEMA=[dbo]
+GO
+
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\RMagulu1]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\RMagulu1]
+GO
+
+USE [QICMDB04]
+GO
+
+/****** Object:  User [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]    Script Date: 8/19/2025 8:47:44 AM ******/
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-Admins]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [GSM1900\RMagulu1]
+GO
+
+USE [QICMDB04]
+GO
+
+/****** Object:  User [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]    Script Date: 8/19/2025 8:48:24 AM ******/
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadOnly]
+GO
+
+USE [QICMDB04]
+GO
+
+/****** Object:  User [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]    Script Date: 8/19/2025 8:49:08 AM ******/
+CREATE USER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite] FOR LOGIN [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [GSM1900\Commissions-IGNITE-NPE-SQLDB-ReadWrite]
+GO
+
+
+USE [QICMDB04]
+GO
+
+/****** Object:  User [SVC_QAT_ICMDB_RO]    Script Date: 8/19/2025 8:51:12 AM ******/
+CREATE USER [SVC_QAT_ICMDB_RO] FOR LOGIN [SVC_QAT_ICMDB_RO] WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [SVC_QAT_ICMDB_RO]
+GO
+
+USE [QICMDB04]
+GO
+
+/****** Object:  User [SVC_QAT_ICMDB_RW]    Script Date: 8/19/2025 8:52:24 AM ******/
+CREATE USER [SVC_QAT_ICMDB_RW] FOR LOGIN [SVC_QAT_ICMDB_RW] WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_owner] ADD MEMBER [SVC_QAT_ICMDB_RW]
+GO
+
+------------------------------------------------------------
+
+
+
+
+[10:43 AM] Martins, Bruno
+no final precisa colocar essa permissão na base que vc restaurar
+
+RE: PLAB01 | PLAB02 | QLAB01 | Env refresh | SQL DBA
+SR041289313
+
+*PLAB02 refresh with due date as of 08/09 using production copy of 08/08.*
+
+Source PROD Environment:
+1.ppolwtkca0000d\PRD,50086\ProdICMDB  Backup copy date 08-08-2024
+ 
+Target NPE Environment:  Refresh using above backup copy.
+1. LPOLWTKCA00021.gsm1900.org,50052 / PICMDB02  Restore this DB using backup from above Step#1
+
+
+----------------------------------------------------------------------
+Backup database on Source:
+
+BACKUP DATABASE [LeaseCalcPro_UAT] TO  DISK = N'H:\MSSQL14.TST\MSSQL\BACKUP\LeaseCalPro_UAT_Fullbackup_20250916'
+ WITH  COPY_ONLY, NOFORMAT, NOINIT,  NAME = N'LeaseCalcPro_UAT-Full Database Backup', SKIP, NOREWIND, NOUNLOAD,  STATS = 10
+GO
+
+or
+WITH NOFORMAT, NOINIT,  NAME = N'<FILE_NAME_HERE>', SKIP, NOREWIND, NOUNLOAD,  STATS = 10
+GO
+
+BACKUP DATABASE [ProdICMDB] TO  DISK = N'H:\MSSQL15.PRD\MSSQL\BACKUP\SR041289313-ProdICMDB-Refresh\SR041289313-ProdICMDB-Refresh'
+WITH NOFORMAT, NOINIT,  NAME = N'ProdICMDB-Full Database Backup', SKIP, NOREWIND, NOUNLOAD,  STATS = 10
+
+GO
+-----
+
+Para transferir os arquivos:
+Usar o servidor PSQLMER como ponte. Usar MAP Network Drive, usar o nome do host ativo em caso de cluster.
+Maperar o drive H da origem e destino assim:
+\\<SERVER_NAME_HERE>\H$
+Obs: remover a opcao de "reconect at login"
+
+-----
+USE [master]
+RESTORE DATABASE [PICMDB01] FROM  DISK = N'H:\DBA\CHG013465542\ProdlCMDB_01032025_0336am.bak' WITH  FILE = 1,  
+MOVE N'newbase_Data' TO N'G:\MSSQL15.PEL\MSSQL\DATA\ICMDB101.mdf', 
+MOVE N'newbase_Log' TO N'I:\MSSQL15.PEL\MSSQL\DATA\ICMDB101_1.ldf',  
+NOUNLOAD,  REPLACE,  STATS = 5
+GO
+
+USE [master]
+RESTORE DATABASE [PICMDB02] FROM  DISK = N'H:\DBA\CHG013465542\ProdlCMDB_01032025_0336am.bak' WITH  FILE = 1,  
+MOVE N'newbase_Data' TO N'G:\MSSQL15.PEL\MSSQL\DATA\ICMDB102.mdf', 
+MOVE N'newbase_Log' TO N'I:\MSSQL15.PEL\MSSQL\DATA\ICMDB102_1.ldf',  
+NOUNLOAD,  REPLACE,  STATS = 5
+GO
+
+----
+
+BACKUP DATABASE ProdICMDB TO  
+ DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_1-4.bak',
+ DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_2-4.bak', 
+ DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_3-4.bak',
+ DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_4-4.bak'
+    WITH NOFORMAT, 
+	COPY_ONLY,  
+	NAME = N'ProdICMDB_16Jun25_FULL', 
+	SKIP, 
+	NOREWIND,
+	NOUNLOAD,  STATS = 10
+GO
+
+usando o cyberarck, a partir do PTTNWMERX00015 mapear e transferir usar "map as different user" ADM_Jgalean8:
+\\ppolwtkca0000d\H$
+\\LPOLWTKCA00021\H$
+
+---------------------------
+----
+--Execmplo com kill sessions: SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+
+USE [master]
+ALTER DATABASE [LeaseCalcPro_UAT] SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+RESTORE DATABASE [LeaseCalcPro_UAT] 
+FROM  DISK = N'H:\MSSQL14.TST\MSSQL\BACKUP\LeaseCalPro_UAT_Fullbackup_20250915.bak' WITH  FILE = 1,  NOUNLOAD,  REPLACE,  STATS = 5
+ALTER DATABASE [LeaseCalcPro_UAT] SET MULTI_USER
+GO
+
+
+-- Restore PICMDB01
+USE [master]
+RESTORE DATABASE [PICMDB01] FROM  
+DISK = N'H:\CHG014170719\ProdICMDB_03Mar2025_1-4.bak',
+DISK = N'H:\CHG014170719\ProdICMDB_03Mar2025_2-4.bak', 
+DISK = N'H:\CHG014170719\ProdICMDB_03Mar2025_3-4.bak',
+DISK = N'H:\CHG014170719\ProdICMDB_03Mar2025_4-4.bak'
+WITH  FILE = 1,  
+MOVE N'newbase_Data' TO N'G:\MSSQL15.PEL\MSSQL\DATA\ICMDB101.mdf', 
+MOVE N'newbase_Log' TO N'I:\MSSQL15.PEL\MSSQL\DATA\ICMDB101_1.ldf',  
+NOUNLOAD,  REPLACE,  STATS = 10
+GO
+
+-- Restore PICMDB02
+USE [master]
+RESTORE DATABASE [PICMDB02] FROM  
+DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_1-4.bak',
+DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_2-4.bak', 
+DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_3-4.bak',
+DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_4-4.bak'
+WITH  FILE = 1,  
+MOVE N'newbase_Data' TO N'G:\MSSQL15.PEL\MSSQL\DATA\ICMDB102.mdf', 
+MOVE N'newbase_Log' TO N'I:\MSSQL15.PEL\MSSQL\DATA\ICMDB102_1.ldf',  
+NOUNLOAD,  REPLACE,  STATS = 10
+GO
+
+-- Retore DICMDB03
+USE [master]
+RESTORE DATABASE DICMDB03 FROM  
+DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_1-4.bak',
+DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_2-4.bak', 
+DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_3-4.bak',
+DISK = N'H:\CHG016591952\ProdICMDB_16Jun25_4-4.bak'
+WITH  FILE = 1,  
+MOVE N'newbase_Data' TO N'G:\MSSQL15.DEV\MSSQL\DATA\ICMDB101.mdf', 
+MOVE N'newbase_Log' TO N'I:\MSSQL15.DEV\MSSQL\DATA\ICMDB101_1.ldf',  
+NOUNLOAD,  REPLACE,  STATS = 10
+GO
+
+--------------------------------------------------------------------
+-- Query: Generate KILL Commands for Active Sessions on a Specific Database
+
+SELECT
+    'KILL ' + CAST(session_id AS VARCHAR(10)) + ';' AS kill_command
+FROM sys.dm_exec_sessions AS s
+JOIN sys.dm_exec_requests AS r
+    ON s.session_id = r.session_id
+WHERE DB_NAME(r.database_id) = 'YourDatabaseName'
+AND s.session_id <> @@SPID;
+
+
+---------------------------------------------------------------------
+
+--backup to N files in parallel:
+https://www.sqlshack.com/split-sql-database-backups-into-multiple-backup-files-using-ssms/
+
+	BACKUP DATABASE [LeaseCalcPro] TO  
+	DISK = N'H:\SR041324349\LeaseCalcPro_29sep2024_1_prod.bak',
+	  DISK = N'H:\SR041324349\LeaseCalcPro_29sep2024_2_prod.bak', 
+	   DISK = N'H:\SR041324349\LeaseCalcPro_29sep2024_3_prod.bak'
+		WITH NOFORMAT, 
+		COPY_ONLY,  
+		NAME = N'LeaseCalcPro-Full Database Backup', 
+		SKIP, 
+		NOREWIND,
+		NOUNLOAD,  STATS = 10
+	GO
+
+BACKUP DATABASE [LeaseCalcPro] TO  
+DISK = N'H:\SR041324349\LeaseCalcPro_29sep2024_1_prod.bak',
+  DISK = N'H:\SR041324349\LeaseCalcPro_29sep2024_2_prod.bak', 
+   DISK = N'H:\SR041324349\LeaseCalcPro_29sep2024_3_prod.bak'
+    WITH NOFORMAT, 
+	NOINIT,  
+	NAME = N'LeaseCalcPro-Full Database Backup', 
+	SKIP, 
+	NOREWIND,
+	NOUNLOAD,  STATS = 10
+GO
+
+-- restore from N files to a new database also move logical files to new physical files:
+USE [master]
+RESTORE DATABASE [LeaseCalcPro_PROD] FROM  
+DISK = N'H:\SR041324349\LeaseCalcPro_29sep2024_1_prod.bak',  
+DISK = N'H:\SR041324349\LeaseCalcPro_29sep2024_2_prod.bak',  
+DISK = N'H:\SR041324349\LeaseCalcPro_29sep2024_3_prod.bak' 
+WITH  FILE = 1,  
+MOVE N'LeaseCalcPro' TO N'G:\MSSQL14.DEV\MSSQL\DATA\LeaseCalcPro_PROD.mdf',  
+MOVE N'LeaseCalcPro_log' TO N'I:\MSSQL14.DEV\MSSQL\DATA\LeaseCalcPro_PROD.ldf',  
+NOUNLOAD,  STATS = 10
+GO
+
+---------------------------------------------------------------------
 
 
 /***************************************************************************//***************************************************************************
@@ -146,6 +728,14 @@ IF DATABASE_PRINCIPAL_ID('ys043835') IS NOT NULL GRANT CONNECT TO [ys043835]
 -- [--DB LEVEL SCHEMA PERMISSIONS --] --
 
 
+
+
+
+
+
+ 
+ 
+ 
 
 
 
