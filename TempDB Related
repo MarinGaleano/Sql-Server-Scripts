@@ -5,6 +5,61 @@ https://www.sqlshack.com/monitoring-sql-server-tempdb-with-dynamic-management-vi
 use tempdb
 sp_space_used
 --------------------------------------------------------------------------------- 
+-- Tempdb space used check and list queries
+
+USE tempdb;
+GO
+-- Total temp db usage im MB
+SELECT
+    SUM(size) * 8 / 1024 AS TotalMB,
+    SUM(CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT)) * 8 / 1024 AS UsedMB,
+    (SUM(size) - SUM(CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT))) * 8 / 1024 AS FreeMB
+FROM sys.database_files;
+
+-- check temp db file usage
+SELECT
+    name AS FileName,
+    size/128.0 AS TotalMB,               -- File size in MB
+    size/128.0 - CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT)/128.0 AS FreeMB,
+    CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT)/128.0 AS UsedMB,
+    physical_name
+FROM sys.database_files;
+
+-- check tempdb usage per session
+SELECT 
+    session_id,
+    SUM(internal_objects_alloc_page_count)*8/1024 AS InternalObjectsMB,
+    SUM(user_objects_alloc_page_count)*8/1024 AS UserObjectsMB
+FROM sys.dm_db_session_space_usage
+GROUP BY session_id
+ORDER BY SUM(internal_objects_alloc_page_count) DESC;
+
+-- List session and query text for a GB threshould
+SELECT
+    r.session_id,
+    r.request_id,
+    s.login_name,
+    s.host_name,
+    s.program_name,
+    DB_NAME(r.database_id) AS DatabaseName,
+    (su.internal_objects_alloc_page_count 
+     + su.user_objects_alloc_page_count) * 8 / 1024 / 1024 AS TempdbUsageGB,
+    r.status,
+    r.command,
+    st.text AS SqlText
+FROM sys.dm_db_session_space_usage su
+JOIN sys.dm_exec_requests r
+    ON su.session_id = r.session_id
+JOIN sys.dm_exec_sessions s
+    ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) st
+WHERE (su.internal_objects_alloc_page_count 
+     + su.user_objects_alloc_page_count) * 8 / 1024 / 1024 > 1  -- GB threshold
+ORDER BY TempdbUsageGB DESC;
+
+
+---------------------------------------------------------------------------------
+
 Determinar a quantidade de espaço livre de log no tempdb
 
 USE tempdb;  
