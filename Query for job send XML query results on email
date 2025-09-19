@@ -1,0 +1,122 @@
+
+
+
+DECLARE @UsedTempDBMB DECIMAL(18,2),
+        @TempDBTotalMB DECIMAL(18,2),
+		@TempDBFreeMB DECIMAL(18,2),
+        @TempDBUsedPct DECIMAL(5,2),
+        @TempDBMessage NVARCHAR(MAX),
+		@UserDBLogMessage NVARCHAR(MAX),
+		@UserDBUsedLog Decimal(18,2),
+		@UserDBTotalLog Decimal(18,2),
+		@UserDBLogPct DECIMAL(5,2),
+		@TempdbFileThreshold DECIMAL(5,2),
+		@UserDBLogThreshold DECIMAL(5,2),
+		@TempdbUsedThresholdMB DECIMAL(18,2),
+		@MailMessage NVARCHAR(MAX),
+		@Body VARCHAR(500);
+		
+
+ Set @TempdbFileThreshold=0
+ Set @UserDBLogThreshold=0
+ SET @TempdbUsedThresholdMB = 563200 --(550GB)
+-- Get tempdb usage
+SELECT  @UsedTempDBMB=SUM((allocated_extent_page_count)*1.0/128),
+    @TempDBFreeMB=SUM((unallocated_extent_page_count)*1.0/128),
+    @TempDBTotalMB=SUM(total_page_count*1.0/128) ,
+	@TempDBUsedPct=(SUM((allocated_extent_page_count)*1.0/128)/SUM(total_page_count*1.0/128)* 100)
+FROM tempdb.sys.dm_db_file_space_usage
+ 
+ 
+   --Query for getting the [prdteqimpwu2sdlcstore-sqldb0] log file Utilization
+SELECT 
+        @UserDBUsedLog=(Used_Log_Space_in_Bytes)/1048576,
+        @UserDBTotalLog=(Total_Log_Size_in_Bytes)/1048576,
+        @UserDBLogPct=convert(numeric(10,2),Used_Log_Space_in_Percent)
+        FROM [prdteqimpwu2sdlcstore-sqldb0].sys.dm_db_log_space_usage;
+  
+SELECT @TempdbUsedThresholdMB, @UsedTempDBMB,@TempDBFreeMB,@TempDBTotalMB,@TempDBUsedPct,@UserDBTotalLog,@UserDBUsedLog,@UserDBLogPct
+
+
+-- If User Database log file is also greater than 50% or Tempdb used MB >550GB
+
+IF @UserDBLogPct>@UserDBLogThreshold OR @UsedTempDBMB > @TempdbUsedThresholdMB
+
+BEGIN
+
+ SET @TempDBMessage=
+		N'<H1>TempDB Utilization Status</H1>' +
+        N'<style type="text/css">' +
+        N'table {border-collapse: collapse;}' +
+        N'th, td {border: 1px solid black; padding: 8px; text-align: left;}' +
+        N'th {background-color: red;}' +
+        N'</style>' +
+        N'<table border="1">' +
+        N'<thead><tr><th>TempDB_Used_Data_Space_in_MB</th><th>TempDB_Free_data_Space_in_MB</th>
+		<th>TempDB_Data_Size_in_MB</th><th>Percentage</th></tr></thead>' +
+        N'<tbody>';
+		
+		--Query for getting the TempDB files Utilization
+			 SET @TempDBMessage = @TempDBMessage +
+			 CAST ( ( SELECT td = SUM((allocated_extent_page_count)*1.0/128), '',
+                        td = SUM((unallocated_extent_page_count)*1.0/128), '',
+                        td = SUM(total_page_count*1.0/128),'',
+						td = convert(numeric(10,2),(SUM((allocated_extent_page_count)*1.0/128)/SUM(total_page_count*1.0/128)* 100)),''
+                FROM tempdb.sys.dm_db_file_space_usage
+                FOR XML PATH('tr'), TYPE
+              ) AS NVARCHAR(MAX) ) +
+			N'</tbody></table>';
+
+SET @UserDBLogMessage=
+		N'<H1>PRDCSTORE-SQLDB0 Log Utilization Status</H1>' +
+		N'<style type="text/css">' +
+        N'table {border-collapse: collapse;}' +
+        N'th, td {border: 1px solid black; padding: 8px; text-align: left;}' +
+        N'th {background-color: red;}' +
+        N'</style>' +
+        N'<table border="1">' +
+        N'<thead><tr><th>Used_Log_Space_in_MB</th><th>Total_Log_Size_in_MB</th>
+		<th>Percentage</th></tr></thead>' +
+        N'<tbody>';
+
+		
+ SET @UserDBLogMessage=@UserDBLogMessage +
+ CAST ( ( SELECT td = (Used_Log_Space_in_Bytes)/1048576, '',
+ td = (Total_Log_Size_in_Bytes)/1048576, '',
+ td = convert(numeric(10,2),Used_Log_Space_in_Percent),''
+ FROM [prdteqimpwu2sdlcstore-sqldb0].sys.dm_db_log_space_usage
+FOR XML PATH('tr'), TYPE ) AS NVARCHAR(MAX) ) +
+N'</table>';
+
+
+
+SET @MailMessage=@TempDBMessage + @UserDBLogMessage
+
+   EXEC msdb.dbo.sp_send_dbmail
+        @profile_name = 'Azuremanagedinstance_dbmail_profile',   -- Database Mail profile name
+        @recipients   = 'myEMAIL.com',
+        @subject      = '<SERVERNAME> Utilization Status',
+        @body         = @MailMessage,
+		@body_format = 'HTML';
+
+ IF @UserDBLogPct>@UserDBLogThreshold
+	BEGIN 
+	SET @Body = 'DFDS PROD DB prdcstore-sqldb0 Log usage crossed threshold of '+ CONVERT(VARCHAR,@UserDBLogThreshold)+ '% and reached '+ CONVERT(VARCHAR,@UserDBLogPct)+'%'
+	  
+	EXEC msdb.dbo.sp_send_dbmail
+        @profile_name = 'Azuremanagedinstance_dbmail_profile',   -- Database Mail profile name
+        @recipients   = 'myEMAIL.com',
+        @subject      = '<SERVERNAME> AppDB Utilization Status',
+        @body         = @Body
+	END
+  ELSE 
+	BEGIN
+	SET @Body = 'DFDS PROD tempdb data usage crossed threshold of '+ CONVERT(VARCHAR,@TempdbUsedThresholdMB)+ 'MB and reached '+ CONVERT(VARCHAR,@UsedTempDBMB)+'MB'
+	  
+	EXEC msdb.dbo.sp_send_dbmail
+        @profile_name = 'Azuremanagedinstance_dbmail_profile',   -- Database Mail profile name
+        @recipients   = 'myEMAIL.com',
+        @subject      = '<SERVERNAME> Tempdb Utilization Status',
+        @body         = @Body
+	END
+END
