@@ -1,0 +1,52 @@
+
+EXEC sp_MSforeachdb '
+IF ''?'' IN (''SqlSetupDB'')
+BEGIN
+    USE [?];
+
+create role SecureSphere_role;
+CREATE USER [GSM1900\SVC_DEV_0501233_SQL] FOR login [GSM1900\SVC_DEV_0501233_SQL] ;
+alter role SecureSphere_role add member  [GSM1900\SVC_DEV_0501233_SQL];
+GRANT SELECT ON dbo.sysobjects TO SecureSphere_role;
+GRANT SELECT ON dbo.sysprotects TO SecureSphere_role;
+GRANT SELECT ON dbo.sysusers TO SecureSphere_role;
+GRANT SELECT ON sys.asymmetric_keys TO SecureSphere_role;
+GRANT SELECT ON sys.database_files TO SecureSphere_role;
+GRANT SELECT ON sys.database_permissions TO SecureSphere_role;
+GRANT SELECT ON sys.database_principals TO SecureSphere_role;
+GRANT SELECT ON sys.database_role_members TO SecureSphere_role;
+GRANT SELECT ON sys.key_encryptions TO SecureSphere_role;
+GRANT SELECT ON sys.objects TO SecureSphere_role;
+GRANT SELECT ON sys.procedures TO SecureSphere_role;
+GRANT SELECT ON sys.schemas TO SecureSphere_role;
+GRANT SELECT ON sys.sql_modules TO SecureSphere_role;
+GRANT SELECT ON sys.symmetric_keys TO SecureSphere_role;
+GRANT SELECT ON sys.system_objects TO SecureSphere_role;
+END';
+
+
+EXEC sp_MSforeachdb '
+IF ''?'' NOT IN (''master'',''model'',''msdb'',''tempdb'',''SqlSetupDB'')
+BEGIN
+    USE [?];
+
+create role SecureSphere_role;
+CREATE USER [GSM1900\SVC_DEV_0501233_SQL] FOR login [GSM1900\SVC_DEV_0501233_SQL] ;
+alter role SecureSphere_role add member  [GSM1900\SVC_DEV_0501233_SQL];
+GRANT SELECT ON dbo.sysobjects TO SecureSphere_role;
+GRANT SELECT ON dbo.sysprotects TO SecureSphere_role;
+GRANT SELECT ON dbo.sysusers TO SecureSphere_role;
+GRANT SELECT ON sys.asymmetric_keys TO SecureSphere_role;
+GRANT SELECT ON sys.database_files TO SecureSphere_role;
+GRANT SELECT ON sys.database_permissions TO SecureSphere_role;
+GRANT SELECT ON sys.database_principals TO SecureSphere_role;
+GRANT SELECT ON sys.database_role_members TO SecureSphere_role;
+GRANT SELECT ON sys.key_encryptions TO SecureSphere_role;
+GRANT SELECT ON sys.objects TO SecureSphere_role;
+GRANT SELECT ON sys.procedures TO SecureSphere_role;
+GRANT SELECT ON sys.schemas TO SecureSphere_role;
+GRANT SELECT ON sys.sql_modules TO SecureSphere_role;
+GRANT SELECT ON sys.symmetric_keys TO SecureSphere_role;
+GRANT SELECT ON sys.system_objects TO SecureSphere_role;
+END';
+
