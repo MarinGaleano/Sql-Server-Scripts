@@ -1,7 +1,13 @@
 --------------------------------------------------------------------------------- 
 -- para Disco cheio, se for disco D, procura a pasta D:\perflogs e deixa apenas os 3 ultimos meses.
 	verificar tbm os pares, em caso de fail over cluster e AG.
-	
+---------------------------------------------------------------------------------
+-- Para verificar espaco nos drives SO
+EXEC xp_fixeddrives;
+drive	MB free
+C	4288074
+D	4288074
+
 --------------------------------------------------------------------------------- 
 Para alertas de disco servidores NDW
 Se estiver < 95,5%, fechar e colocar o seguinte: NDW team is aware and working on this issue
