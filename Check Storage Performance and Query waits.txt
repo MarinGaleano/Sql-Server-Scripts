@@ -1,0 +1,197 @@
+top 5 cached queries by memory usage:
+
+SELECT TOP 5
+    cp.memory_object_address,
+    cp.size_in_bytes / 1024 AS SizeKB,
+    qs.execution_count,
+    qs.total_worker_time / qs.execution_count AS AvgCPUTime,
+    qs.total_logical_reads / qs.execution_count AS AvgLogicalReads,
+    SUBSTRING(st.text, (qs.statement_start_offset/2) + 1,
+        ((CASE qs.statement_end_offset
+             WHEN -1 THEN DATALENGTH(st.text)
+             ELSE qs.statement_end_offset
+         END - qs.statement_start_offset)/2) + 1) AS QueryText,
+    qp.query_plan
+FROM sys.dm_exec_cached_plans AS cp
+JOIN sys.dm_exec_query_stats AS qs
+    ON cp.plan_handle = qs.plan_handle
+CROSS APPLY sys.dm_exec_sql_text(cp.plan_handle) AS st
+CROSS APPLY sys.dm_exec_query_plan(cp.plan_handle) AS qp
+ORDER BY cp.size_in_bytes DESC;
+
+
+PAGEIOLATCH_SH
+---Check which queries are causing the waits
+
+SELECT 
+    wait_type, 
+    wait_time_ms, 
+    waiting_tasks_count, 
+    100.0 * wait_time_ms / SUM(wait_time_ms) OVER() AS Percentage
+FROM sys.dm_os_wait_stats
+WHERE wait_type LIKE 'PAGEIOLATCH%'
+ORDER BY wait_time_ms DESC;
+
+--Check queries doing heavy reads
+
+SELECT TOP 10
+    qs.total_logical_reads + qs.total_physical_reads AS TotalReads,
+    qs.execution_count,
+    qs.total_physical_reads,
+    qs.total_logical_reads,
+    SUBSTRING(qt.text, (qs.statement_start_offset/2)+1,
+        ((CASE qs.statement_end_offset
+            WHEN -1 THEN DATALENGTH(qt.text)
+            ELSE qs.statement_end_offset END
+            - qs.statement_start_offset)/2)+1) AS QueryText
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt
+ORDER BY TotalReads DESC;
+
+
+Look at storage latency
+Use sys.dm_io_virtual_file_stats to check average read latency per database file:
+
+SELECT
+    DB_NAME(vfs.database_id) AS DatabaseName,
+    mf.physical_name,
+    vfs.num_of_reads,
+    vfs.io_stall_read_ms,
+    vfs.io_stall_read_ms / NULLIF(vfs.num_of_reads,0) AS AvgReadLatency_ms
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) vfs
+JOIN sys.master_files mf ON vfs.database_id = mf.database_id AND vfs.file_id = mf.file_id
+ORDER BY AvgReadLatency_ms DESC;
+
+-- You want me to take a SQL Server statement (probably something like sys.dm_io_virtual_file_stats that shows I/O waits and latency) and rewrite it so that it:
+Takes a snapshot at time = 0
+Waits 10 seconds
+Takes another snapshot
+Calculates the delta over that 10-second window
+Shows average latency and throughput in that window only
+
+Here’s a generic template you can apply to most storage checks:
+
+-- Take first snapshot
+IF OBJECT_ID('tempdb..#io_stats1') IS NOT NULL DROP TABLE #io_stats1;
+
+SELECT
+    DB_NAME(vfs.database_id) AS DatabaseName,
+    mf.physical_name,
+    vfs.database_id,
+    vfs.file_id,
+    vfs.num_of_reads,
+    vfs.num_of_writes,
+    vfs.io_stall_read_ms,
+    vfs.io_stall_write_ms
+INTO #io_stats1
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) AS vfs
+JOIN sys.master_files AS mf
+  ON vfs.database_id = mf.database_id
+ AND vfs.file_id = mf.file_id;
+
+-- Wait 10 seconds
+WAITFOR DELAY '00:00:10';
+
+-- Take second snapshot
+IF OBJECT_ID('tempdb..#io_stats2') IS NOT NULL DROP TABLE #io_stats2;
+
+SELECT
+    DB_NAME(vfs.database_id) AS DatabaseName,
+    mf.physical_name,
+    vfs.database_id,
+    vfs.file_id,
+    vfs.num_of_reads,
+    vfs.num_of_writes,
+    vfs.io_stall_read_ms,
+    vfs.io_stall_write_ms
+INTO #io_stats2
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) AS vfs
+JOIN sys.master_files AS mf
+  ON vfs.database_id = mf.database_id
+ AND vfs.file_id = mf.file_id;
+
+-- Compare snapshots to get 10-second deltas
+SELECT 
+    s2.DatabaseName,
+    s2.physical_name,
+    ReadsInInterval   = s2.num_of_reads  - s1.num_of_reads,
+    WritesInInterval  = s2.num_of_writes - s1.num_of_writes,
+    AvgReadLatencyMs  = CASE WHEN (s2.num_of_reads - s1.num_of_reads) > 0
+                             THEN (s2.io_stall_read_ms - s1.io_stall_read_ms) 
+                                  / NULLIF((s2.num_of_reads - s1.num_of_reads),0)
+                             ELSE 0 END,
+    AvgWriteLatencyMs = CASE WHEN (s2.num_of_writes - s1.num_of_writes) > 0
+                             THEN (s2.io_stall_write_ms - s1.io_stall_write_ms) 
+                                  / NULLIF((s2.num_of_writes - s1.num_of_writes),0)
+                             ELSE 0 END
+FROM #io_stats1 s1
+JOIN #io_stats2 s2
+  ON s1.database_id = s2.database_id
+ AND s1.file_id = s2.file_id
+ORDER BY (s2.num_of_reads - s1.num_of_reads) 
+       + (s2.num_of_writes - s1.num_of_writes) DESC;
+
+--------------------------------------------------------------------------------------------
+-- Filtering by database name
+
+-- Take first snapshot for MyDatabaseName
+IF OBJECT_ID('tempdb..#io_stats1') IS NOT NULL DROP TABLE #io_stats1;
+
+SELECT
+    DB_NAME(vfs.database_id) AS DatabaseName,
+    mf.physical_name,
+    vfs.database_id,
+    vfs.file_id,
+    vfs.num_of_reads,
+    vfs.num_of_writes,
+    vfs.io_stall_read_ms,
+    vfs.io_stall_write_ms
+INTO #io_stats1
+FROM sys.dm_io_virtual_file_stats(DB_ID('MyDatabaseName'), NULL) AS vfs
+JOIN sys.master_files AS mf
+  ON vfs.database_id = mf.database_id
+ AND vfs.file_id = mf.file_id;
+
+-- Wait 10 seconds
+WAITFOR DELAY '00:00:10';
+
+-- Take second snapshot for MyDatabaseName
+IF OBJECT_ID('tempdb..#io_stats2') IS NOT NULL DROP TABLE #io_stats2;
+
+SELECT
+    DB_NAME(vfs.database_id) AS DatabaseName,
+    mf.physical_name,
+    vfs.database_id,
+    vfs.file_id,
+    vfs.num_of_reads,
+    vfs.num_of_writes,
+    vfs.io_stall_read_ms,
+    vfs.io_stall_write_ms
+INTO #io_stats2
+FROM sys.dm_io_virtual_file_stats(DB_ID('MyDatabaseName'), NULL) AS vfs
+JOIN sys.master_files AS mf
+  ON vfs.database_id = mf.database_id
+ AND vfs.file_id = mf.file_id;
+
+-- Compare snapshots to get 10-second deltas
+SELECT 
+    s2.DatabaseName,
+    s2.physical_name,
+    ReadsInInterval   = s2.num_of_reads  - s1.num_of_reads,
+    WritesInInterval  = s2.num_of_writes - s1.num_of_writes,
+    AvgReadLatencyMs  = CASE WHEN (s2.num_of_reads - s1.num_of_reads) > 0
+                             THEN (s2.io_stall_read_ms - s1.io_stall_read_ms) 
+                                  / NULLIF((s2.num_of_reads - s1.num_of_reads),0)
+                             ELSE 0 END,
+    AvgWriteLatencyMs = CASE WHEN (s2.num_of_writes - s1.num_of_writes) > 0
+                             THEN (s2.io_stall_write_ms - s1.io_stall_write_ms) 
+                                  / NULLIF((s2.num_of_writes - s1.num_of_writes),0)
+                             ELSE 0 END
+FROM #io_stats1 s1
+JOIN #io_stats2 s2
+  ON s1.database_id = s2.database_id
+ AND s1.file_id = s2.file_id
+ORDER BY (s2.num_of_reads - s1.num_of_reads) 
+       + (s2.num_of_writes - s1.num_of_writes) DESC;
+
+
