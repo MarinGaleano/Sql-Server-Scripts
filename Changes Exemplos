@@ -1,6 +1,7 @@
 Changes Exemplos
+-- More samples you can see filtering this on your inbox: "Dana Ferguson (Data Management) Organization - SNOW"
 
-Changes Exemplos
+
 
 CHG016891601 - Change de backup
 CHG016586506 - Emergency change to reconfigure log backups
@@ -9,7 +10,25 @@ CHG016704608 - Certificate change
 CHG017175134 - CHG de pré check de gMSA
 CHG011628497 - CHG de implementacao gMSA 
 CHG018377843 - Reboot emergencial -- Needs app manager approval
-CHG016586506 - Exemplo de emergency change para reodar local log backupsCR de reboot:
 CHG011659943 - CR de reboot
+CHG016586506 - Exemplo de emergency change para rodar local log backupsCR de reboot:
 CHG011650193 - CR para adicao de datafiles:
+CHG018764711/CHG019108029 - Emergency Add Storage
+CHG018979929 - Change de restart/adicao de cpu
+CHG018536893 - Add CPU
+CHG019104843 - Emergency change to rotate password
+CHG019220455 - Informacional, change do zscaler para restabelecer acesso a um departamento
+CHG017936864 - Shirink PROD database file
+CHG019268899 - Change para linked server/update password
+CHG019271688 - Cohesity team for restore and overwrite database
+CHG019103514 - Scream  test before decom
+CHG019393002 - Change to add CPU
+CHG018466493 - DECOM 
+CHG019440414 - Add Set Sql Operator
+CHG016641066 - Vulnerability fix
+CHG018479670 - Violations fix
+CHG018151380 - Prod upgrade
+
+----------------------------------
+REQ01664522 - backup intake for restore database as copy
 
