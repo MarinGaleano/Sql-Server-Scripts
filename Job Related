@@ -472,6 +472,62 @@ ORDER BY
     j.name,
     ExecutionDate,
     ExecutionHour;
+
+----------------------------------------------------------------------------------------
+
+--List all jobs, enabled/disabled, last run status, last completion time, last executed time
+USE msdb;
+GO
+
+WITH JobHistory AS (
+    SELECT 
+        h.job_id,
+        h.run_status,
+        h.run_date,
+        h.run_time,
+        ROW_NUMBER() OVER (PARTITION BY h.job_id ORDER BY h.run_date DESC, h.run_time DESC) AS rn
+    FROM msdb.dbo.sysjobhistory h
+    WHERE h.step_id = 0 -- job outcome only (final result)
+),
+JobExec AS (
+    SELECT 
+        h.job_id,
+        msdb.dbo.agent_datetime(h.run_date, h.run_time) AS LastExecutedTime,
+        ROW_NUMBER() OVER (PARTITION BY h.job_id ORDER BY h.run_date DESC, h.run_time DESC) AS rn
+    FROM msdb.dbo.sysjobhistory h
+    -- include all steps (captures actual start)
+)
+SELECT 
+    j.job_id AS JobId,
+    j.name AS JobName,
+    CASE j.enabled 
+        WHEN 1 THEN 'Enabled' 
+        ELSE 'Disabled' 
+    END AS JobEnabled,
+    CASE 
+        WHEN h.run_status = 0 THEN 'Failed'
+        WHEN h.run_status = 1 THEN 'Succeeded'
+        WHEN h.run_status = 2 THEN 'Retry'
+        WHEN h.run_status = 3 THEN 'Canceled'
+        WHEN h.run_status = 4 THEN 'In Progress'
+        ELSE 'Never Run'
+    END AS LastRunStatus,
+    msdb.dbo.agent_datetime(h.run_date, h.run_time) AS LastRunCompletionTime,
+    e.LastExecutedTime
+FROM msdb.dbo.sysjobs j
+LEFT JOIN JobHistory h 
+    ON j.job_id = h.job_id AND h.rn = 1
+LEFT JOIN JobExec e 
+    ON j.job_id = e.job_id AND e.rn = 1
+ORDER BY j.name;
+
+
+
+
+
+
+
+
 	
 	
 
