@@ -1,0 +1,46 @@
+USE [master]
+GO
+
+/****** Object:  LinkedServer [PMWDT]    Script Date: 10/17/2025 12:52:37 PM ******/
+EXEC master.dbo.sp_addlinkedserver @server = N'PMWDT', @srvproduct=N'Oracle', @provider=N'OraOLEDB.Oracle', @datasrc=N'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=hostname.org)(PORT=7693))(CONNECT_DATA=(SERVICE_NAME=pmwdt)))'
+ /* For security reasons the linked server remote logins password is changed with ######## */
+EXEC master.dbo.sp_addlinkedsrvlogin @rmtsrvname=N'PMWDT',@useself=N'False',@locallogin=NULL,@rmtuser=N'link',@rmtpassword='########'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'collation compatible', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'data access', @optvalue=N'true'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'dist', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'pub', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'rpc', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'rpc out', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'sub', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'connect timeout', @optvalue=N'0'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'collation name', @optvalue=null
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'lazy schema validation', @optvalue=N'false'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'query timeout', @optvalue=N'0'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'use remote collation', @optvalue=N'true'
+GO
+
+EXEC master.dbo.sp_serveroption @server=N'PMWDT', @optname=N'remote proc transaction promotion', @optvalue=N'true'
