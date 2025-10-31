@@ -1,0 +1,8 @@
+Orphaned User detection
+goto Steps to Fix Mismatched SIDs
+https://www.mssqltips.com/sqlservertip/5380/orphaned-user-detection-for-sql-server-high-availability-databases/
+
+https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/security/transfer-logins-passwords-between-instances
+
+--with power shell
+https://docs.dbatools.io/Copy-DbaLogin
