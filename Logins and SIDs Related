@@ -83,6 +83,13 @@ USE [master]
 GO
 CREATE LOGIN [<LOGIN_NAME_HERE>] WITH PASSWORD=N'<PASSWORD_HERE>', DEFAULT_DATABASE=[<DEFAULT_DATABSE_HERE>], CHECK_EXPIRATION=OFF, CHECK_POLICY=ON
 GO
+--IMPORTANT: To create local logins on secondary replicas, use the above to generate the create login with the same SID as the primary database:
+EXEC master.dbo.sp_help_revlogin 'new_local_login_name' 
+-- or get the SID from master.sys.server_principals (not the user_id) and
+CREATE LOGIN [new_local_login_name] WITH PASSWORD = password, SID = 0x5AA1D60278D9424, 
+       DEFAULT_DATABASE = [master], CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF 
+
+
 USE [<DEFAULT_DATABSE_HERE>]
 GO
 CREATE USER [<LOGIN_NAME_HERE>] FOR LOGIN [<LOGIN_NAME_HERE>]
