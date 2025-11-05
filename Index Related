@@ -206,6 +206,88 @@ ORDER BY
 	
 ---------------------------------------------------------------------------------
 -- --Fragmentation
+
+--- Filtre o database ID para retornar somente do database desejado
+--- Para saber o dbid no master use:  select name, dbid from sysdatabases
+--- ou no contexto do database use:  select db_id() 
+
+DECLARE @DBName SYSNAME;
+
+-- Temporary table to store results from all databases
+IF OBJECT_ID('tempdb..#FragInfo') IS NOT NULL DROP TABLE #FragInfo;
+CREATE TABLE #FragInfo
+(
+    DatabaseName SYSNAME,
+    TableName SYSNAME,
+    IndexName SYSNAME,
+    AvgFragmentationPercent FLOAT,
+    TableRowCount BIGINT
+);
+
+DECLARE db_cursor CURSOR FOR
+SELECT name 
+FROM sys.databases
+--WHERE database_id > 4 -- skip system databases
+WHERE database_id = 14 -- use your target DB
+  AND state_desc = 'ONLINE';
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @DBName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    DECLARE @sql NVARCHAR(MAX) = N'
+    USE [' + @DBName + '];
+    INSERT INTO #FragInfo (DatabaseName, TableName, IndexName, AvgFragmentationPercent, TableRowCount)
+    SELECT
+        DB_NAME() AS DatabaseName,
+        t.name AS TableName,
+        i.name AS IndexName,
+        ips.avg_fragmentation_in_percent AS AvgFragmentationPercent,
+        ts.TotalRowCount
+    FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, ''LIMITED'') AS ips
+    JOIN sys.indexes AS i
+        ON ips.object_id = i.object_id 
+       AND ips.index_id = i.index_id
+    JOIN sys.tables AS t
+        ON i.object_id = t.object_id
+    JOIN (
+        SELECT 
+            object_id, 
+            SUM(row_count) AS TotalRowCount
+        FROM sys.dm_db_partition_stats
+        WHERE index_id < 2  -- clustered index or heap
+        GROUP BY object_id
+    ) AS ts
+        ON t.object_id = ts.object_id
+    WHERE i.type_desc <> ''HEAP'';';  -- Only include indexes
+
+    EXEC (@sql);
+
+    FETCH NEXT FROM db_cursor INTO @DBName;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+-- Show results ordered by fragmentation and table name
+SELECT 
+    DatabaseName,
+    TableName,
+    IndexName,
+    AvgFragmentationPercent,
+    TableRowCount
+FROM #FragInfo
+ORDER BY TableRowCount DESC, TableName;
+
+
+
+
+
+
+
+--------------------------
+-- or
 use <DATABASE_NAME>
 SELECT OBJECT_NAME(ix.object_ID) AS TableName, 
        ix.name AS IndexName, 
