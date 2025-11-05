@@ -1,0 +1,160 @@
+DECLARE @OldUser SYSNAME = N'%NPE%';         -- adicione aqui o prefixo do grupo antigo        
+DECLARE @NewUser    SYSNAME = N'GSM1900\$URKH40-CDJ7O9HQK54V'; -- adicione o nome do grupo novo
+
+SET NOCOUNT ON;
+
+IF OBJECT_ID('tempdb..#Users') IS NOT NULL DROP TABLE #Users;
+IF OBJECT_ID('tempdb..#Roles') IS NOT NULL DROP TABLE #Roles;
+IF OBJECT_ID('tempdb..#Perms') IS NOT NULL DROP TABLE #Perms;
+
+CREATE TABLE #Users
+(
+    database_name            SYSNAME,
+    principal_id             INT,
+    database_user_name       SYSNAME,
+    type_desc                NVARCHAR(60),
+    authentication_type_desc NVARCHAR(60),
+    default_schema_name      SYSNAME,
+    has_sid                  BIT
+);
+
+CREATE TABLE #Roles
+(
+    database_name SYSNAME,
+    member_name   SYSNAME,
+    role_name     SYSNAME
+);
+
+CREATE TABLE #Perms
+(
+    database_name     SYSNAME,
+    grantee_principal SYSNAME,
+    grant_state       NVARCHAR(60),
+    permission_name   NVARCHAR(128),
+    securable_class   NVARCHAR(60),
+    securable_name    NVARCHAR(512),
+    column_name       SYSNAME NULL
+);
+
+DECLARE @db SYSNAME, @sql NVARCHAR(MAX);
+
+DECLARE cur CURSOR LOCAL FAST_FORWARD FOR
+SELECT name
+FROM sys.databases
+WHERE database_id > 4
+  AND state_desc = 'ONLINE';
+
+OPEN cur;
+FETCH NEXT FROM cur INTO @db;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @sql = N'
+USE ' + QUOTENAME(@db) + N';
+
+-- 1) Usuários
+INSERT INTO #Users
+SELECT
+    DB_NAME(),
+    dp.principal_id,
+    dp.name,
+    dp.type_desc,
+    dp.authentication_type_desc,
+    dp.default_schema_name,
+    CASE WHEN dp.sid IS NOT NULL THEN 1 ELSE 0 END
+FROM sys.database_principals dp
+WHERE dp.name LIKE @OldUser
+  AND dp.type NOT IN (''A'',''G'',''R'',''X'');
+
+-- 2) Roles
+INSERT INTO #Roles
+SELECT
+    DB_NAME(),
+    m.name,
+    r.name
+FROM sys.database_role_members drm
+JOIN sys.database_principals r ON drm.role_principal_id = r.principal_id
+JOIN sys.database_principals m ON drm.member_principal_id = m.principal_id
+WHERE m.name LIKE @OldUser;
+
+-- 3) Permissões
+INSERT INTO #Perms
+SELECT
+    DB_NAME(),
+    dp.name,
+    perm.state_desc,
+    perm.permission_name,
+    perm.class_desc,
+    CASE
+        WHEN perm.class = 0 THEN DB_NAME()
+        WHEN perm.class_desc = ''SCHEMA'' THEN SCHEMA_NAME(perm.major_id)
+        WHEN perm.class_desc = ''OBJECT_OR_COLUMN''
+            THEN ISNULL(OBJECT_SCHEMA_NAME(perm.major_id), '''') + ''.'' + ISNULL(OBJECT_NAME(perm.major_id), '''')
+        ELSE ''major_id='' + CONVERT(varchar(10), perm.major_id)
+    END,
+    CASE 
+      WHEN perm.class_desc = ''OBJECT_OR_COLUMN'' AND perm.minor_id > 0 
+        THEN (SELECT c.name FROM sys.columns c WHERE c.object_id = perm.major_id AND c.column_id = perm.minor_id)
+      ELSE NULL
+    END
+FROM sys.database_permissions perm
+JOIN sys.database_principals dp ON perm.grantee_principal_id = dp.principal_id
+WHERE dp.name LIKE @OldUser;
+';
+
+    EXEC sp_executesql @sql, N'@OldUser SYSNAME', @OldUser = @OldUser;
+
+    FETCH NEXT FROM cur INTO @db;
+END
+CLOSE cur; DEALLOCATE cur;
+
+--------------------------------------------------------
+-- RESULTADOS COM SCRIPT PRONTO
+--------------------------------------------------------
+
+-- Scripts para roles (SIMPLES + CREATE USER SE NÃO EXISTIR)
+SELECT
+    database_name,
+    member_name,
+    role_name,
+    'USE ' + QUOTENAME(database_name) + ';
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N''' + REPLACE(@NewUser,'''','''''') + ''')
+    CREATE USER ' + QUOTENAME(@NewUser) + ' FOR LOGIN ' + QUOTENAME(@NewUser) + ';
+ALTER ROLE ' + QUOTENAME(role_name) + ' ADD MEMBER ' + QUOTENAME(@NewUser) + ';' AS add_role_script
+FROM #Roles
+ORDER BY database_name, member_name, role_name;
+
+-- Scripts para permissões (SIMPLES)
+SELECT
+    database_name,
+    grantee_principal,
+    grant_state,
+    permission_name,
+    securable_class,
+    securable_name,
+    column_name,
+    'USE ' + QUOTENAME(database_name) + ';
+' +
+    CASE grant_state
+        WHEN 'DENY' THEN 'DENY ' ELSE 'GRANT '
+    END
+    + QUOTENAME(permission_name) + ' ' +
+    CASE securable_class
+        WHEN 'DATABASE' THEN 'TO ' + QUOTENAME(grantee_principal)
+        WHEN 'SCHEMA'   THEN 'ON SCHEMA::' + QUOTENAME(securable_name) + ' TO ' + QUOTENAME(grantee_principal)
+        WHEN 'OBJECT_OR_COLUMN' THEN
+            'ON OBJECT::' +
+            CASE
+                WHEN CHARINDEX('.', securable_name) > 0
+                    THEN QUOTENAME(LEFT(securable_name, CHARINDEX('.', securable_name)-1))
+                         + '.' +
+                         QUOTENAME(SUBSTRING(securable_name, CHARINDEX('.', securable_name)+1, 4000))
+                ELSE QUOTENAME(securable_name)
+            END
+            + CASE WHEN column_name IS NOT NULL THEN ' (' + QUOTENAME(column_name) + ')' ELSE '' END
+            + ' TO ' + QUOTENAME(grantee_principal)
+        ELSE
+            '-- classe não tratada: ' + securable_class
+    END
+    + ';' AS permission_script
+FROM #Perms
+ORDER BY database_name, grantee_principal, securable_class, securable_name, column_name;
