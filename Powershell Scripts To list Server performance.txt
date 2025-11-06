@@ -1,3 +1,28 @@
+# 7. System Uptime
+Write-Host "`n>> System Uptime:" -ForegroundColor Yellow
+$uptime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+$ts = (Get-Date) - $uptime
+"Last Boot Time     : $($uptime.ToString('yyyy-MM-dd HH:mm:ss'))"
+"Uptime             : $($ts.Days) days, $($ts.Hours) hours, $($ts.Minutes) minutes"
+
+#  System Info
+Write-Host "`n>> System Info:" -ForegroundColor Yellow
+$comp = Get-CimInstance Win32_ComputerSystem
+$bios = Get-CimInstance Win32_BIOS
+$proc = Get-CimInstance Win32_Processor
+$virtual = if ($comp.Model -match "Virtual|VMware|KVM|Hyper-V") { "Virtual" } else { "Physical" }
+
+"Computer Name      : $($comp.Name)"
+"Manufacturer       : $($comp.Manufacturer)"
+"Model              : $($comp.Model)"
+"BIOS Version       : $($bios.SMBIOSBIOSVersion)"
+"Domain             : $($comp.Domain)"
+"Logged On User     : $env:USERNAME"
+"System Type        : $virtual"
+"Logical Processors : $($comp.NumberOfLogicalProcessors)"
+"Physical CPUs      : $($comp.NumberOfProcessors)"
+
+
 ---------------------------------------------------
 -- Server CPU/Memory/Sql server Privileged Time
 
