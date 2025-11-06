@@ -1,0 +1,121 @@
+---------------------------------------------------
+-- Server CPU/Memory/Sql server Privileged Time
+
+$serverName = $env:COMPUTERNAME
+$Counters = @(
+    ("\\$serverName" + "\Processor(_Total)\% Processor Time"),  ("\\$serverName" + "\Memory\% Committed Bytes In Use"), ("\\$serverName" + "\Process(sqlservr*)\% Privileged Time")
+)
+Get-Counter -Counter $Counters -MaxSamples 30 | ForEach {
+    $_.CounterSamples | ForEach {
+        [pscustomobject]@{
+            TimeStamp = $_.TimeStamp
+            Path = $_.Path
+            Value = ([Math]::Round($_.CookedValue, 3))
+        }
+        Start-Sleep -s 2
+    }
+}
+
+-- Avg Queue Lenght fir a Logical disk G
+
+$serverName = $env:COMPUTERNAME
+$Counters = @(
+    ("\\$serverName" + "\LogicalDisk(G:)\Avg. Disk Queue Length")
+)
+Get-Counter -Counter $Counters -MaxSamples 30 | ForEach {
+    $_.CounterSamples | ForEach {
+        [pscustomobject]@{
+            TimeStamp = $_.TimeStamp
+            Path = $_.Path
+             Value =  ("{0:000.0}" -f $_.CookedValue)
+        }
+        Start-Sleep -s 2
+    }
+}
+
+-- Avg Queue Lenght for a Logical disk disks G/I/T (Sql server default disk on TMO)
+
+$serverName = $env:COMPUTERNAME
+$Counters = @(
+    ("\\$serverName" + "\LogicalDisk(G:)\Avg. Disk Queue Length"), ("\\$serverName" + "\LogicalDisk(I:)\Avg. Disk Queue Length"),  ("\\$serverName" + "\LogicalDisk(T:)\Avg. Disk Queue Length")
+
+)
+Get-Counter -Counter $Counters -MaxSamples 30 | ForEach {
+    $_.CounterSamples | ForEach {
+        [pscustomobject]@{
+            TimeStamp = $_.TimeStamp
+            Path = $_.Path
+            Value =  ("{0:000.0}" -f $_.CookedValue)
+        }
+        Start-Sleep -s 2
+    }
+}
+
+
+--- Overall Disk Latency (R+W)/ response time for a Logical disks G/I/T (Sql server default disk on TMO)
+
+--Overall Latency for logical Disks (Read+Writes
+$serverName = $env:COMPUTERNAME
+$Counters = @(
+    ("\\$serverName" + "\LogicalDisk(G:)\Avg. Disk sec/Transfer"), ("\\$serverName" + "\LogicalDisk(I:)\Avg. Disk sec/Transfer"), ("\\$serverName" + "\LogicalDisk(T:)\Avg. Disk sec/Transfer")
+)
+Get-Counter -Counter $Counters -MaxSamples 30 | ForEach {
+    $_.CounterSamples | ForEach {
+        [pscustomobject]@{
+            TimeStamp = $_.TimeStamp
+            Path = $_.Path
+            Value = ([Math]::Round($_.CookedValue, 3))
+        }
+        Start-Sleep -s 2
+    }
+}
+
+
+--- Overall Disk Latencys for a Logical disks G
+
+$serverName = $env:COMPUTERNAME
+$Counters = @(
+    ("\\$serverName" + "\LogicalDisk(G:)\Avg. Disk sec/Read"), ("\\$serverName" + "\LogicalDisk(G:)\Avg. Disk sec/Write"),  ("\\$serverName" + "\LogicalDisk(G:)\Avg. Disk sec/Transfer")
+)
+Get-Counter -Counter $Counters -MaxSamples 30 | ForEach {
+    $_.CounterSamples | ForEach {
+        [pscustomobject]@{
+            TimeStamp = $_.TimeStamp
+            Path = $_.Path
+            Value = ([Math]::Round($_.CookedValue, 3))
+        }
+        Start-Sleep -s 2
+    }
+}
+
+$serverName = $env:COMPUTERNAME
+$Counters = @(
+    ("\\$serverName" + "\LogicalDisk(I:)\Avg. Disk sec/Read"), ("\\$serverName" + "\LogicalDisk(I:)\Avg. Disk sec/Write"),  ("\\$serverName" + "\LogicalDisk(I:)\Avg. Disk sec/Transfer")
+)
+Get-Counter -Counter $Counters -MaxSamples 30 | ForEach {
+    $_.CounterSamples | ForEach {
+        [pscustomobject]@{
+            TimeStamp = $_.TimeStamp
+            Path = $_.Path
+            Value = ([Math]::Round($_.CookedValue, 3))
+        }
+        Start-Sleep -s 2
+    }
+}
+
+$serverName = $env:COMPUTERNAME
+$Counters = @(
+    ("\\$serverName" + "\LogicalDisk(T:)\Avg. Disk sec/Read"), ("\\$serverName" + "\LogicalDisk(T:)\Avg. Disk sec/Write"),  ("\\$serverName" + "\LogicalDisk(T:)\Avg. Disk sec/Transfer")
+)
+Get-Counter -Counter $Counters -MaxSamples 30 | ForEach {
+    $_.CounterSamples | ForEach {
+        [pscustomobject]@{
+            TimeStamp = $_.TimeStamp
+            Path = $_.Path
+            Value = ([Math]::Round($_.CookedValue, 3))
+        }
+        Start-Sleep -s 2
+    }
+}
+
+---------------------------------------------------------------------------------------
