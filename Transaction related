@@ -1,0 +1,105 @@
+-- Check all databases for open tran
+SET NOCOUNT ON;
+
+IF OBJECT_ID('tempdb..#OpenTranInfo') IS NOT NULL DROP TABLE #OpenTranInfo;
+
+CREATE TABLE #OpenTranInfo
+(
+    DatabaseName SYSNAME,
+    SessionId INT,
+    TransactionId BIGINT,
+    TransactionName NVARCHAR(255),
+    TransactionType NVARCHAR(60),
+    TransactionState NVARCHAR(60),
+    TransactionBeginTime DATETIME,
+    LogUsedMB DECIMAL(18,2),
+    EstimatedRowsAffected BIGINT,
+    HostName NVARCHAR(255),
+    LoginName NVARCHAR(255),
+    ProgramName NVARCHAR(255),
+    CurrentStatement NVARCHAR(MAX)
+);
+
+DECLARE @cmd NVARCHAR(MAX);
+DECLARE @dbname SYSNAME;
+
+DECLARE db_cursor CURSOR FOR
+SELECT name FROM sys.databases WHERE database_id > 4 AND state_desc = 'ONLINE';
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @dbname;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @cmd = N'
+    USE [' + @dbname + N'];
+    INSERT INTO #OpenTranInfo
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        es.session_id,
+        at.transaction_id,
+        at.name AS TransactionName,
+        CASE at.transaction_type
+            WHEN 1 THEN ''Read/Write''
+            WHEN 2 THEN ''Read-Only''
+            WHEN 3 THEN ''System''
+            WHEN 4 THEN ''Distributed''
+            ELSE ''Unknown''
+        END AS TransactionType,
+        CASE at.transaction_state
+            WHEN 0 THEN ''Not Initialized''
+            WHEN 1 THEN ''Active''
+            WHEN 2 THEN ''Ended''
+            WHEN 3 THEN ''Commit Started''
+            WHEN 4 THEN ''Prepared''
+            WHEN 5 THEN ''Committed''
+            WHEN 6 THEN ''Rolling Back''
+            WHEN 7 THEN ''Rolled Back''
+            ELSE ''Unknown''
+        END AS TransactionState,
+        atdt.database_transaction_begin_time AS TransactionBeginTime,
+        CAST(atdt.database_transaction_log_bytes_used / 1024.0 / 1024.0 AS DECIMAL(18,2)) AS LogUsedMB,
+        ISNULL(er.row_count, 0) AS EstimatedRowsAffected,
+        es.host_name,
+        es.login_name,
+        es.program_name,
+        SUBSTRING(st.text, er.statement_start_offset / 2 + 1,
+            (CASE WHEN er.statement_end_offset = -1 
+                  THEN LEN(CONVERT(NVARCHAR(MAX), st.text)) * 2 
+                  ELSE er.statement_end_offset END - er.statement_start_offset) / 2 + 1) AS CurrentStatement
+    FROM sys.dm_tran_active_transactions AS at
+    JOIN sys.dm_tran_database_transactions AS atdt
+        ON at.transaction_id = atdt.transaction_id
+    JOIN sys.dm_exec_sessions AS es
+        ON es.session_id IN (
+            SELECT session_id FROM sys.dm_tran_session_transactions WHERE transaction_id = at.transaction_id
+        )
+    LEFT JOIN sys.dm_exec_requests AS er
+        ON es.session_id = er.session_id
+    OUTER APPLY sys.dm_exec_sql_text(er.sql_handle) AS st
+    WHERE atdt.database_transaction_state = 1; -- Active
+    ';
+    EXEC sp_executesql @cmd;
+    FETCH NEXT FROM db_cursor INTO @dbname;
+END;
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+SELECT 
+    DatabaseName,
+    SessionId,
+    TransactionName,
+    TransactionType,
+    TransactionState,
+    TransactionBeginTime,
+    LogUsedMB,
+    EstimatedRowsAffected,
+    HostName,
+    LoginName,
+    ProgramName,
+    CurrentStatement
+FROM #OpenTranInfo
+ORDER BY LogUsedMB DESC, EstimatedRowsAffected DESC;
+
+
