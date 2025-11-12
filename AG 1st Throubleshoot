@@ -26,6 +26,9 @@ EXEC xp_readerrorlog 0, 1, N'Always On';
 -- Check for database specific errors -- all servers
 EXEC xp_readerrorlog 0, 1, N'Database
 
+-- Check changing roles on HADR run on all servers till find who was the primary
+EXEC xp_readerrorlog 0, 1, N'is changing roles', N'primary';
+
 
 -- Check rollback on secondary 
 SELECT  session_id, percent_complete, estimated_completion_time, command, status
