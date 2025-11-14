@@ -1,0 +1,383 @@
+Databases Transfer
+
+
+
+By Juliano Monteiro
+
+6 min
+
+8
+
+Add a reaction
+Complete Backup and Restore Migration Procedure
+Overview
+This comprehensive procedure integrates Ola Hallengren's SQL Server Maintenance Solution for backup creation, Robocopy for high-performance file transfer between servers, and dbatools for automated database restoration. This three-stage approach provides a robust, production-ready migration framework suitable for server migrations, disaster recovery testing, and database refreshes.​
+
+Prerequisites
+Before beginning the backup and restore migration procedure, ensure the following requirements are met:​​
+
+Ola Hallengren Maintenance Solution installed on source instance​
+
+dbatools PowerShell module installed on destination server​
+
+Sufficient disk space on both source and destination servers
+
+Network connectivity and SMB access between servers
+
+Appropriate SQL Server permissions (sysadmin or db_backupoperator/db_datareader)
+
+SQL Server service account read access to backup files
+
+Architecture Overview
+The migration procedure follows three distinct phases:​
+
+Phase 1: Backup Creation - Ola Hallengren DatabaseBackup procedure​
+
+Phase 2: File Transfer - Robocopy with multi-threading and retry logic​
+
+Phase 3: Database Restore - dbatools Restore-DbaDatabase with MaintenanceSolution support​
+
+Phase 1: Backup Creation Using Ola Hallengren
+Description
+Ola Hallengren's DatabaseBackup procedure creates optimized, compressed backups with verification and multi-file striping capabilities. The procedure supports full, differential, and transaction log backups with extensive customization options.​
+
+Use Case
+Essential for creating production-quality backups with compression, checksums, verification, and multi-threaded I/O for optimal performance.​
+
+Example 1: Single Database Full Backup with Compression
+
+
+-- Full backup of single database with compression and verification
+EXECUTE dbo.DatabaseBackup
+    @Databases = 'AdventureWorks',
+    @Directory = 'H:\SQLBackup',
+    @BackupType = 'FULL',
+    @CopyOnly = 'Y',
+    @Compress = 'Y',
+    @NumberOfFiles = 8
+Example 2: All User Databases Full Backup (Migration Scenario)
+
+
+-- Full backup of all user databases for migration
+EXECUTE dbo.DatabaseBackup
+    @Databases = 'USER_DATABASES',
+    @Directory = 'H:\',
+    @BackupType = 'FULL',
+    @CopyOnly = 'Y',
+    @Compress = 'Y',
+    @NumberOfFiles = 8
+Example 3: Specific Databases with Custom Directory Structure
+
+
+-- Backup specific databases with custom naming
+EXECUTE dbo.DatabaseBackup
+    @Databases = 'Database1, Database2, Database3',
+    @Directory = 'H:\MigrationBackup',
+    @BackupType = 'FULL',
+    @CopyOnly = 'Y',
+    @Compress = 'Y',
+    @Verify = 'Y',
+    @Checksum = 'Y',
+    @NumberOfFiles = 6,
+    @BufferCount = 50,
+    @MaxTransferSize = 4194304
+Phase 2: File Transfer Using Robocopy
+Description
+Robocopy provides high-performance, reliable file transfer with multi-threading, retry logic, and resume capability. This phase copies backup files from source to destination with automatic retry on network failures.​
+
+Use Case
+Critical for transferring large backup files across network connections with minimal downtime and maximum reliability.​
+
+Example 1: Basic Single Database Transfer
+
+
+REM Transfer single database backup files
+robocopy \\SERVER_01\H$\MSSQL13.PRD\MSSQL\BACKUP\AdventureWorks \\SERVER_02\H$\MSSQL16.PRD\MSSQL\BACKUP\AdventureWorks /E /R:3 /W:10
+Phase 3: Database Restore Using dbatools
+Description
+The dbatools Restore-DbaDatabase command with -MaintenanceSolution parameter automatically detects and restores Ola Hallengren backup structures, including full, differential, and transaction log backups.​
+
+Use Case
+Essential for automated, intelligent restoration that handles backup chain detection, file relocation, and point-in-time recovery scenarios.​
+
+Example 1: Simple Full Backup Restore
+
+
+# Restore single database from Ola Hallengren backup structure
+Restore-DbaDatabase -SqlInstance 'SERVER_02\PRD' `
+    -Path '\\SERVER_02\H$\MSSQL16.PRD\MSSQL\BACKUP\AdventureWorks' `
+    -MaintenanceSolution
+Example 2: Restore with Custom Data and Log Locations
+
+
+# Restore database to custom file locations
+$params = @{
+    SqlInstance = 'SERVER_02\PRD'
+    Path = '\\SERVER_02\H$\MSSQL16.PRD\MSSQL\BACKUP\AdventureWorks'
+    MaintenanceSolution = $true
+    DestinationDataDirectory = 'D:\SQLData'
+    DestinationLogDirectory = 'L:\SQLLogs'
+}
+Restore-DbaDatabase @params
+Example 3: Restore Multiple Databases
+
+
+# Restore all databases from migration backup directory
+$params = @{
+    SqlInstance = 'SERVER_02\PRD'
+    Path = '\\SERVER_02\H$\MigrationBackup'
+    MaintenanceSolution = $true
+}
+Restore-DbaDatabase @params
+ 
+
+SQL Server Database Restore for Always On Availability Groups using dbatools
+Overview
+Restoring databases for Always On Availability Groups (AG) requires databases to be in a specific state on secondary replicas before they can be added to the availability group. The database must be restored with the NORECOVERY option, leaving it in a "Restoring" state. The dbatools Restore-DbaDatabase command with -MaintenanceSolutionBackup parameter provides automated restoration from Ola Hallengren backup structures, intelligently detecting and applying full and transaction log backups in the correct sequence.​
+
+Prerequisites for AG Database Seeding
+Before restoring databases for Always On AG, ensure the following requirements are met:​
+
+Always On Availability Groups feature enabled on all replicas
+
+Database exists on primary replica and is part of the AG (or will be added)
+
+Database must be in FULL recovery model​
+
+Secondary replica(s) are accessible and SQL Server Agent is running
+
+Backup files from Ola Hallengren's Maintenance Solution available on accessible path
+
+Network connectivity between replicas
+
+Same database name will be used on all replicas
+
+Understanding NORECOVERY State
+The NORECOVERY option leaves the database in a restoring state, allowing additional transaction log backups to be applied. This is essential for AG seeding because:​
+
+Database remains in RESTORING state
+
+Additional transaction logs can be applied
+
+Database cannot be accessed until brought online
+
+Synchronization can begin once database is added to AG
+
+Allows for minimal downtime during AG setup
+
+Method 1: Basic NORECOVERY Restore from Ola Hallengren Backups
+Description
+This method restores a database from Ola Hallengren backup structure (full + logs) and leaves it in NORECOVERY state, ready to be added to an Always On Availability Group.​
+
+Use Case
+Essential for preparing secondary replicas when setting up new availability groups or adding databases to existing AGs.​
+
+Example - Single Database NORECOVERY Restore
+
+
+# Restore database in NORECOVERY state for AG seeding
+$params = @{
+    SqlInstance = 'SQL02-SECONDARY'
+    Path = '\\BackupServer\SQLBackups\SQL01-PRIMARY\ProductionDB'
+    MaintenanceSolution = $true
+    NoRecovery = $true
+}
+Restore-DbaDatabase @params
+Example - Continue with Additional Logs
+
+
+# Initial restore (already completed)
+# Restore-DbaDatabase -SqlInstance 'SQL02-SECONDARY' -Path '\\Backups\ProductionDB' -MaintenanceSolution -NoRecovery
+# Continue applying additional transaction logs
+$params = @{
+    SqlInstance = 'SQL02-SECONDARY'
+    Path = '\\BackupServer\SQLBackups\SQL01-PRIMARY\ProductionDB\LOG'
+    Continue = $true
+    NoRecovery = $true
+}
+Restore-DbaDatabase @params
+Example - Verify Database State After Restore
+
+
+# Restore database
+Restore-DbaDatabase -SqlInstance 'SQL02-SECONDARY' `
+    -Path '\\BackupServer\SQLBackups\SQL01-PRIMARY\ProductionDB' `
+    -MaintenanceSolution `
+    -NoRecovery
+# Verify database is in RESTORING state
+Get-DbaDatabase -SqlInstance 'SQL02-SECONDARY' -Database 'ProductionDB' | 
+    Select-Object Name, Status, RecoveryModel
+Method 2: Restore Multiple Databases for AG Seeding
+Description
+This method restores multiple databases to secondary replicas in NORECOVERY state, preparing them all for addition to availability groups.​
+
+Use Case
+Perfect for seeding multiple secondary replicas or restoring multiple databases that will participate in the same availability group.​
+
+Example - Multiple Database Restore
+
+
+# Define databases to restore for AG
+$databases = @('ProductionDB', 'FinanceDB', 'HRDB')
+$secondaryReplicas = @('SQL02-SECONDARY', 'SQL03-SECONDARY')
+foreach ($replica in $secondaryReplicas) {
+    foreach ($database in $databases) {
+        Write-Output "Restoring $database to $replica in NORECOVERY state..."
+        $params = @{
+            SqlInstance = $replica
+            Path = "\\BackupServer\SQLBackups\SQL01-PRIMARY\$database"
+            MaintenanceSolution = $true
+            NoRecovery = $true
+        }
+        Restore-DbaDatabase @params
+    }
+}
+Method 3: Replace Existing Database for AG Re-Seeding
+Description
+This method replaces an existing database on a secondary replica with a fresh restore in NORECOVERY state. This is useful when re-seeding a replica that has fallen out of sync.​
+
+Use Case
+Critical for re-synchronizing secondary replicas that have become severely out of sync or when refreshing test/DR environments.​
+
+Example - Replace and Re-Seed
+
+
+# Remove database from AG first (on primary)
+# Remove-DbaAgDatabase -SqlInstance 'SQL01-PRIMARY' -AvailabilityGroup 'AG01' -Database 'ProductionDB' -Confirm:$false
+# Restore fresh copy to secondary in NORECOVERY
+$params = @{
+    SqlInstance = 'SQL02-SECONDARY'
+    Path = '\\BackupServer\SQLBackups\SQL01-PRIMARY\ProductionDB'
+    MaintenanceSolution = $true
+    NoRecovery = $true
+    WithReplace = $true
+    DestinationDataDirectory = 'D:\SQLData'
+    DestinationLogDirectory = 'L:\SQLLogs'
+}
+Restore-DbaDatabase @params
+# Database is now ready to be added back to AG
+Verify Database State Before AG Join
+Always verify databases are in RESTORING state before adding to AG:​
+
+
+
+Get-DbaDatabase -SqlInstance 'SQL02-SECONDARY' | 
+    Where-Object Status -eq 'Restoring' | 
+    Select-Object Name, Status
+Test Network Path Access
+Ensure all replicas have access to backup locations:​
+
+
+
+# Test backup path access
+Test-Path '\\BackupServer\SQLBackups\SQL01-PRIMARY\ProductionDB'
+Adding Database to Availability Group After Restore
+After restoring databases in NORECOVERY state, add them to the availability group on the primary replica:​
+
+
+
+-- On PRIMARY replica
+ALTER AVAILABILITY GROUP [AG-Production]
+ADD DATABASE [ProductionDB];
+GO
+Or using dbatools:
+
+
+
+# Add database to AG (executes on primary)
+Add-DbaAgDatabase -SqlInstance 'SQL01-PRIMARY' `
+    -AvailabilityGroup 'AG-Production' `
+    -Database 'ProductionDB' `
+    -SeedingMode Manual
+Troubleshooting
+Database Not in RESTORING State
+If database is not in RESTORING state after restore, verify NoRecovery parameter was used:​
+
+
+
+# Correct syntax
+-NoRecovery = $true
+LSN Chain Broken
+If LSN chain is broken, start over with a fresh full backup:​
+
+
+
+# Start fresh with latest full backup
+Restore-DbaDatabase -SqlInstance 'SQL02-SECONDARY' `
+    -Path '\\Backups\ProductionDB' `
+    -MaintenanceSolution `
+    -NoRecovery `
+    -WithReplace
+Cannot Add to AG - Database Not Synchronized
+Ensure database recovery model is FULL and database is in RESTORING state:​
+
+
+
+# Verify prerequisites
+Get-DbaDatabase -SqlInstance 'SQL02-SECONDARY' -Database 'ProductionDB' | 
+    Select-Object Name, Status, RecoveryModel
+SQL Server Database Owner Standardization Procedure using dbatools
+Method 1: Set All Database Owners to 'CISAdmin'
+Description
+This method sets the owner of all user databases to the sa account (or the renamed sysadmin account) if they don't already match. This is the simplest and most common use case.​
+
+Use Case
+Essential for standardizing database ownership across an instance after migrations, restores, or when cleaning up environments with inconsistent ownership.​
+
+Example - Basic Usage
+
+
+# Set all database owners to 'CISAdmin' on localhost
+Set-DbaDbOwner -SqlInstance localhost -TargetLogin 'CISAdmin'
+Example - Set Owners Across Multiple Instances
+
+
+# Standardize ownership across multiple instances
+$instances = 'SQL01', 'SQL02', 'SQL03'
+Set-DbaDbOwner -SqlInstance $instances - -TargetLogin 'CISAdmin'
+Example - View Results with Full Details
+
+
+# Set ownership and view complete results
+Set-DbaDbOwner -SqlInstance localhost -TargetLogin 'CISAdmin' | 
+    Select-Object SqlInstance, Database, Owner, TargetLogin, OwnershipChanged
+Method 2: Set Owner for Specific Databases
+Description
+This method changes ownership for specific databases rather than all databases on an instance. This provides granular control when only certain databases need ownership changes.​​
+
+Use Case
+Perfect for addressing specific databases with orphaned owners or when only certain databases require ownership standardization.​​
+
+Example - Specific Database List
+
+
+# Set ownership for specific databases
+$params = @{
+    SqlInstance = 'localhost'
+    Database = 'AdventureWorks', 'WideWorldImporters', 'FactoryDB'
+    TargetLogin = 'CISAdmin'
+}
+Set-DbaDbOwner @params
+Example - Using Pipeline from Get-DbaDatabase
+
+
+# Set ownership using pipeline from Get-DbaDatabase
+Get-DbaDatabase -SqlInstance localhost -TargetLogin 'CISAdmin' -Database AdventureWorks, FactoryDB | 
+    Set-DbaDbOwner
+Method 4: Exclude Specific Databases
+Description
+This method sets ownership for all databases except those specifically excluded. This is useful when most databases need standardization but a few require different ownership.​
+
+Use Case
+Best for environments where certain databases must maintain specific ownership for application requirements or compliance reasons.​
+
+Example - Exclude System and Specific Databases
+
+
+# Set ownership excluding specific databases
+$params = @{
+    SqlInstance = 'localhost'
+    ExcludeDatabase = 'master', 'model', 'msdb', 'tempdb', 'SpecialDB'
+    TargetLogin = 'CISAdmin'
+}
+Set-DbaDbOwner @params
