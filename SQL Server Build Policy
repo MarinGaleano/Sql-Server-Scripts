@@ -1,0 +1,116 @@
+SQL Server Build Policy
+
+
+
+By Former user (Deleted)
+Jun 19, 2020
+
+Add a reaction
+Legacy editor
+READY FOR REVIEW
+
+
+
+
+
+
+
+
+Purpose
+This policy provides guidelines and requirements to ensure Microsoft SQL Server installations are built, configured, and adhere to security best practices whether on-premise, in the cloud, or through vendor supported instances.
+
+Policy
+The following statements represents security best practices and configurations standards for installing SQL Server. Sourcing for these policy statements can be found in the CIS Microsoft SQL Server 2019 Benchmark.
+
+SQL Server Build
+Edition - By default, installations shall be built as a standard edition. The enterprise edition can be installed in cases where the advanced features and capabilities are required.
+Note that the memory capacity and maximum database size differs for the standard edition; reference Editions and supported features of SQL Server 2019 to determine capabilities by version.
+Version - The most current version of SQL Server shall be deployed whenever possible to take advantage of the latest features and security improvements.
+Server Configurations
+Location - Install SQL Server binaries in the D: drive with the default directory structure. The system and user databases will default to the designated data drive for that server.
+Storage - Format storage for SQL Server installations with 64K file allocation units.
+Memory - Allocate a minimum of 6GB memory for each SQL Server installation and a minimum of 80% of available memory for the database engine. 
+Accounts - Use the NT system account to run new, non-clustered SQL Server installations. Use an AD service account for clustered instances and existing installations. 
+System Administrator
+The "sa" account shall be disabled and replaced by the account "CISAdmin".
+
+Installation, Updates, Patches
+Install the latest SQL Server version along with all patches that are compatible with the organization's operational needs.
+Ensure the latest SQL Server service pack (collection of patches) and hotfix (single patch) are installed to address security and product functionality issues.
+Ensure single-function member servers are used. It is recommended that SQL Server software be installed on a dedicated server. This enables the server to be placed on a separate subnet allowing access only from particular hosts and over particular protocols, reducing the attack surface. 
+Uninstall excess tooling and packages, and remove unnecessary roles from the underlying operating system.
+No third-party software may be installed without approval in advance from the Data Services group.
+Surface Area Reduction
+The majority of server configuration settings will be set to "0" to reduce the attack surface, minimize vulnerabilities, and limit information disclosure. 
+
+Ensure the "Ad Hoc Distributed Queries" server configuration option is set to "0" to prevent remote access, exploitation of vulnerabilities on remote SQL Server instances, and unsafe runs of Visual Basic functions.
+Ensure the "CLR Enabled" server configuration option is set to "0" to reduce the attack surface from both inadvertent and malicious assemblies.
+Ensure the "Cross DB Ownership Chaining" server configuration option is set to "0" to prevent a member of the db_owner role access to objects and causing unnecessary information disclosure. Cross DB Ownership Chaining must only be enabled for specific databases that require it instead of the instance level for all databases.
+Ensure the "Database Mail XPs" server configuration option is set to "0" to disable controls that allow the ability to generate and transmit email from the SQL server. 
+Ensure the "Ole Automation Procedures" server configuration option is set to "0" to disable controls that allow OLE automation objects to be instantiated within Transact-SQL batches. These are extended stored procedures that allow SQL Server users to execute functions external to SQL Server.
+Ensure the "Remote Access" server configuration option is set to "0" to disable controls that execute local stored procedures on remote servers or remote stored procedures on local server.
+Ensure the "Remote Admin Connections" server configuration option is set to "0" to disable controls that allow a client application on a remote computer the ability to use the Dedicated Administrator Connection (DAC).
+Ensure the "Scan For Startup Procs" server configuration option is set to "0" to prevent the SQL Server from scanning and running all stored procedures that are set to execute upon service startup.
+Ensure the "Trustworthy" database property option is set to "OFF" to deny database objects to access objects in other databases under certain circumstances. This provides protection from malicious CLR assemblies or extended procedures.
+Ensure unnecessary SQL Server protocols (i.e. shared memory, named pipes, and TCP/IP) are set to "Disabled" or configured to use the bare minimum required based on the organization's needs.
+Ensure all listening ports are set to non-standard port numbers. The SQL Server port must be reserved at the OS level. 
+Ensure the "Hide Instance" option is set to "YES" for production SQL Server instances.
+Ensure the "sa" login account is set to "Disabled" to prevent scripts and applications from authenticating to the database server and executing required tasks or functions.
+Ensure the "sa" login account has been renamed to make it more difficult to launch password-guessing and brute-force attacks against the "sa" login if the name is not known. 
+Revoke the "execute on public" permission for the following system stored procedures:
+xp_availablemedia
+xp_dirtree
+xp_enumgroups
+xp_fixeddrives
+xp_serivcecontro
+xp_subdirs
+xp_regaddmultistring
+xp_regdeletekey
+xp_regaddkey
+xp_ergenumvalues
+xp_regremovemultistring
+xp_regwrite
+xp_regread
+Ensure "AUTO_CLOSE" is set to "OFF" on contained databases.
+Ensure no login exists with the name "sa". Because the "sa" login is widely known and used SQL server account, there must not be a login named "sa" even after the original "sa" login has been renamed. 
+Authentication and Authorization
+Ensure the "Server Authentication" property is set to "Mixed Mode" to validate attempted connections and provide a more robust authentication mechanism than SQL Server authentication.
+Ensure that "CONNECT" permissions on the "guest" user are revoked within all SQL Server databases, excluding the master, msdb, and tempdb databases. This will ensure that a login is not able to access database information without explicitly granted access.
+Ensure that orphaned users are dropped from SQL Server databases to avoid potential misuse of an undefined or legacy login.
+Ensure SQL Authentication is not used in contained databases because these databases do not enforce complexity rules for SQL Authenticated users.
+Ensure the SQL Server's MSSQL, SQL Agent and Full-Text service account is not an Administrator or member of the Windows Administrator group.
+Following the principle of least privilege, the service account should have no more privileges than required for the job.
+Ensure only the default permissions specified by Microsoft are granted to the public server role.
+Ensure Windows BUILTIN groups and Windows local groups are not SQL logins.
+Ensure the public role in the msdb database is not granted access to SQL Agent proxies.
+Password Policies
+Ensure the "MUST_CHANGE" option is set to "ON" for all SQL authenticated logins to force a password change the first time a new or altered login is used.
+
+Ensure the "CHECK_EXPIRATION" option is set to "ON" for all SQL authenticated logins within the Sysadmin Role. The password expiration policy used in Windows is also applied inside SQL Server. 
+Ensure the "CHECK_POLICY" option is set to "ON" for all SQL authenticated logins. The password expiration policy used in Windows is also applied inside SQL Server.
+Auditing and Logging
+Ensure "Maximum number of error log files" is set to "36" to protect error log files from loss. Retaining more error logs helps prevent loss from frequent recycling before backups can occur.
+Ensure "Default Trace Enabled" server configuration option is set to "1"  to provide valuable and security-related logging activity (i.e. account creations, privilege elevation, execution of DBCC commands) on the server.
+Ensure "Login Auditing" is set to "failed logins" to record failed authentication attempts for SQL Server logins to the SQL Server Errorlog. Capturing failed logins provides forensic records to detect/confirm password guessing attacks.
+Ensure "SQL Server Audit" is set to capture both "failed" and "successful" logins and write them to the application event log, security log, or file system.
+Application Development
+Ensure database and application user input is sanitized to minimize the risk of SQL injection prior to transmitting it to the database server.
+Ensure "CLR Assembly Permission Set" is set to "SAFE_ACCESS" to prevent CLR assemblies from accessing external system resources such as files, network resources, environment variables, or the registry.
+Encryption
+Ensure "Symmetric Key encryption algorithm" is set to "AES_128" or greater in non-system databases.
+Ensure "Asymmetric Key Size" is set to "greater than or equal to 2048" in non-system databases.
+Contact
+Contact the TEQ DS Database Governance Team at TEQDSDatabaseGovernance@t-mobile.com with any questions, comments, or corrections related to this policy.
+
+
+
+
+
+
+Reference Documents
+CIS Microsoft SQL Server 2019 Benchmark
+docs@microsoft.com
+Acronyms and Terms
+CyberArk - CyberArk's Privileged Account Security Solution provides a multi-layered security solution that includes privileged password management, session recording, least privilege enforcement and privileged data analytics to help organizations defend against advanced persistent threats and insider threats.
+
+Dedicated Administrator Connection (DAC) - The Dedicated Administrator Connection (DAC) lets an administrator access a running server to execute diagnostic functions or Transact-SQL statements, or to troubleshoot problems on the server, even when the server is locked or running in an abnormal state and not responding to a SQL Server Database Engine connection. In a cluster scenario, the administrator may not actually be logged on to the same node that is currently hosting the SQL Server instance and thus is considered "remote". Therefore, this setting should usually be enabled (1) for SQL Server failover clusters; otherwise it should be disabled (0) which is the default.
