@@ -1,0 +1,348 @@
+Copy and Configuration
+
+
+
+By Juliano Monteiro
+
+5 min
+
+2
+
+Add a reaction
+Recommended Execution Order
+First, move SSISDB with Master Key password (Step 1)
+
+Then, fix SSISDB CLR assemblies (Step 2)
+
+Finally, fix the permissions issue in the SSISDB database (Step 3)
+
+Restart the SQL Server Integration Services service
+
+Ask to development team to test SSIS package deploy
+
+Checking SSIDB Master Key
+
+Step 1: Move SSISDB with Master Key Password
+On the Source SQL Server Instance:
+
+Add a New Encryption Password to the SSISDB Master Key (if the Master Key is not known)
+Since the original password for the SSISDB master key is unknown, you must first add a new password to encrypt the master key. This will allow you to back it up.
+Connect to the source SQL Server instance using SQL Server Management Studio (SSMS) and execute the following T-SQL:
+
+
+
+USE SSISDB;
+GO
+ALTER MASTER KEY
+ADD ENCRYPTION BY PASSWORD = 'Your_New_Temporary_Password123!';
+GO
+Replace 'Your_New_Temporary_Password123!' with a strong, memorable password.
+
+ 
+
+Back Up the SSISDB Master Key
+Now that the master key is encrypted with a password you know, back it up to a file.
+Obs. Make sure that SQL Server service account has Full Control permissions on backup folder.
+
+
+
+USE SSISDB;
+GO
+BACKUP MASTER KEY
+TO FILE = 'C:\Backup\SSISDB_MasterKey_Backup.key' -- Specify your desired path and filename
+ENCRYPTION BY PASSWORD = 'Your_New_Temporary_Password123!';
+GO
+Ensure you use the same password specified in the previous step. Secure this backup file.
+
+ 
+
+Take a Full Backup of the SSISDB Database
+Perform a full backup of the SSISDB database.
+
+
+
+BACKUP DATABASE [SSISDB]
+TO DISK = N'C:\Backup\SSISDB_FullBackup.bak' -- Specify your desired path and filename
+WITH NOFORMAT, NOINIT, NAME = N'SSISDB-Full Database Backup', SKIP, NOREWIND, NOUNLOAD, COMPRESSION, STATS = 10;
+GO
+On the Destination SQL Server Instance:
+
+ 
+
+Prepare the Destination Server
+
+Install SQL Server Integration Services (SSIS): Ensure that the Integration Services feature is installed and running on the new SQL Server instance. If it's not, you'll need to add this feature through the SQL Server installation setup.
+
+(Recommended) Create an SSIS Catalog: It is often easier if you pre-create the SSIS Catalog on the destination server before restoring the SSISDB backup. This can simplify the master key restoration process. In SSMS, connect to the destination SQL Server, right-click on "Integration Services Catalogs" in Object Explorer, and select "Create Catalog." You will be prompted to enable CLR integration and to set a password for the new (temporary) SSISDB master key.
+
+ 
+
+Restore the SSISDB Database
+Copy the SSISDB full backup file (SSISDB_FullBackup.bak) to a location accessible by the destination SQL Server instance. Then, restore the SSISDB database.
+
+
+
+USE [master];
+GO
+RESTORE DATABASE [SSISDB]
+FROM DISK = N'C:\Backup\SSISDB_FullBackup.bak' -- Update path as necessary
+WITH FILE = 1, NOUNLOAD, STATS = 5; -- Add MOVE options if file paths differ
+GO
+ 
+
+Restore the SSISDB Master Key
+Copy the master key backup file (SSISDB_MasterKey_Backup.key) to a location accessible by the destination SQL Server. Restore the master key using the password you set in Step 1. You will also set a new password for the master key on this destination server.
+
+
+
+USE SSISDB;
+GO
+RESTORE MASTER KEY
+FROM FILE = 'C:\Backup\SSISDB_MasterKey_Backup.key' -- Update path as necessary
+DECRYPTION BY PASSWORD = 'Your_New_Temporary_Password123!'
+ENCRYPTION BY PASSWORD = 'Your_Permanent_New_Password_On_Destination!'
+FORCE;
+GO
+DECRYPTION BY PASSWORD: Use the password from Step 1 ('Your_New_Temporary_Password123!').
+
+ENCRYPTION BY PASSWORD: Set a new, strong password for the master key on the destination server.
+
+FORCE: This option is crucial as it overwrites the existing master key in the restored SSISDB (or the one created if you pre-created the catalog). You may see a warning: "The current master key cannot be decrypted. The error was ignored because the FORCE option was specified." This can be safely ignored in this context.
+
+ 
+
+Link the Database Master Key (DMK) to the Service Master Key (SMK)
+To ensure proper operation and security, the SSISDB's database master key should be encrypted by the Service Master Key of the new SQL Server instance.
+
+
+
+USE SSISDB;
+GO
+OPEN MASTER KEY DECRYPTION BY PASSWORD = 'Your_Permanent_New_Password_On_Destination!';
+GO
+ALTER MASTER KEY ADD ENCRYPTION BY SERVICE MASTER KEY;
+GO
+CLOSE MASTER KEY;
+GO
+ 
+
+Enable CLR Integration (If Not Already Enabled)
+SSISDB relies on CLR integration. If it's not enabled on the destination server, enable it.
+
+
+
+EXEC sp_configure 'show advanced options', 1;
+RECONFIGURE;
+GO
+EXEC sp_configure 'clr enabled', 1;
+RECONFIGURE;
+GO
+ 
+
+Verification
+Finally, verify the migration:
+
+In SSMS, connect to the Integration Services Catalogs on the new server.
+
+Expand the SSISDB node and check if your projects, packages, environments, and parameters are present and accessible.
+
+Attempt to execute one of your SSIS packages to confirm full functionality on the new server.
+
+This process allows you to migrate the SSISDB even without knowing the original master key password by effectively resetting its encryption during the migration.
+
+ 
+
+Step 2: Fix SSISDB CLR Assemblies
+Root Cause
+
+The error occurs because during migration, the necessary permissions to load UNSAFE assemblies were not properly preserved. The microsoft.sqlserver.integrationservices.server assembly with ID 65536 cannot be loaded due to security restrictions.
+
+ 
+
+Identify the Problematic Assembly
+
+First, identify which assembly is causing the problem:
+
+
+
+USE [SSISDB]
+SELECT * FROM sys.assemblies WHERE assembly_id = 65536
+ 
+
+Create and Configure the System User
+
+Execute the following SQL commands to resolve the permissions issue:
+
+
+
+USE master;
+GO
+-- Create the asymmetric key
+CREATE ASYMMETRIC KEY MS_SQLEnableSystemAssemblyLoadingKey 
+FROM EXECUTABLE FILE = 'C:\Program Files\Microsoft SQL Server\160\DTS\Binn\ISServerExec.exe'
+USE master;
+GO
+CREATE ASYMMETRIC KEY MS_SQLEnableSystemAssemblyLoadingKey 
+FROM EXECUTABLE FILE = 'C:\Program Files\Microsoft SQL Server\160\DTS\Binn\Microsoft.SqlServer.IntegrationServices.Server.dll';
+GO
+-- Create the login based on the key
+CREATE LOGIN ##MS_SQLEnableSystemAssemblyLoadingUser## 
+FROM ASYMMETRIC KEY MS_SQLEnableSystemAssemblyLoadingKey
+-- Grant UNSAFE ASSEMBLY permission
+GRANT UNSAFE ASSEMBLY TO ##MS_SQLEnableSystemAssemblyLoadingUser##
+-- Create ##MS_SSISServerCleanupJobLogin##
+USE master;
+GO
+DISABLE TRIGGER [PasswordPolicyCheck] ON ALL SERVER
+GO
+DECLARE @loginPassword NVARCHAR(256);
+SELECT @loginPassword = REPLACE(CONVERT(NVARCHAR(256), CRYPT_GEN_RANDOM(64)), N'''', N'''''');
+DECLARE @sql NVARCHAR(MAX);
+SET @sql = N'CREATE LOGIN [##MS_SSISServerCleanupJobLogin##] 
+    WITH PASSWORD = N''' + @loginPassword + ''',
+    DEFAULT_DATABASE = [master],
+    DEFAULT_LANGUAGE = [us_english],
+    CHECK_EXPIRATION = OFF,
+    CHECK_POLICY = OFF;';
+EXEC sp_executesql @sql;
+GO
+ENABLE TRIGGER [PasswordPolicyCheck] ON ALL SERVER
+GO
+ 
+
+Configure Additional SSISDB Permissions
+
+
+
+USE SSISDB
+-- Change database owner to 'CISAdmin'
+EXEC sp_changedbowner 'CISAdmin'
+-- Enable CLR
+EXEC sp_configure 'clr enabled', 1
+RECONFIGURE
+-- Configure CLR strict security (if necessary)
+EXEC sp_configure 'clr strict security', 0
+RECONFIGURE
+ 
+
+Check if SSISDB Needs Upgrade
+
+If the problem persists, you may need to execute the SSISDB database upgrade:
+
+In SQL Server Management Studio, navigate to Integration Services Catalogs
+
+Right-click on SSISDB and select Database Upgrade
+
+Run the ISDBUpgradeWizard.exe located at C:\Program Files\Microsoft SQL Server\160\DTS\Binn\
+
+ 
+
+Verify User Permissions
+
+Ensure that your user has adequate permissions in the SSISDB catalog. For complete administrative operations, the user should have the ssis_admin role:
+
+
+
+USE SSISDB
+ALTER ROLE ssis_admin ADD MEMBER [your_user]
+ 
+
+What NOT to Do
+
+Avoid setting TRUSTWORTHY to ON on the SSISDB database, as this creates significant security vulnerabilities. The correct solution involves properly configuring system user permissions for assembly loading.
+
+ 
+
+Step 3: Fix the permissions issue in the SSISDB database
+ 
+
+Catalog Schema Ownership Issue
+
+The most common cause of this error is that the 'catalog' schema has had its owner changed to a specific user instead of 'dbo'. This can happen during migrations or when users connect to Integration Services with inappropriate accounts.
+
+Lack of Adequate Permissions
+
+The user attempting to deploy does not have the necessary permissions in the SSISDB database to access catalog objects.
+
+ 
+
+Fix the Catalog Schema Owner
+
+This is the most effective solution to resolve the problem:
+
+
+
+USE SSISDB
+GO
+-- Check the current owner of the catalog schema
+SELECT s.name AS schema_name, p.name AS principal_name
+FROM sys.schemas s
+INNER JOIN sys.database_principals p ON s.principal_id = p.principal_id
+WHERE s.name = 'catalog'
+-- Change the catalog schema owner to dbo
+ALTER AUTHORIZATION ON SCHEMA::catalog TO dbo
+ 
+
+Grant Appropriate SSIS Permissions
+
+Add the user to the ssis_admin role in the SSISDB database:
+
+
+
+USE SSISDB
+GO
+-- Add user to ssis_admin role
+ALTER ROLE ssis_admin ADD MEMBER [DOMAIN\username]
+-- or for SQL user
+ALTER ROLE ssis_admin ADD MEMBER [username]
+ 
+
+Verify and Fix Database Owner
+
+Ensure that the SSISDB database has the correct owner:
+
+
+
+USE SSISDB
+GO
+-- Change the database owner to 'CISAdmin'
+EXEC sp_changedbowner 'CISAdmin'
+ 
+
+(Optional) Additional Verifications
+
+Check User Roles
+
+Confirm which roles the user has in SSISDB:
+
+
+
+USE SSISDB
+GO
+SELECT 
+    dp.name AS principal_name,
+    dp.type_desc AS principal_type,
+    r.name AS role_name
+FROM sys.database_role_members rm
+JOIN sys.database_principals dp ON rm.member_principal_id = dp.principal_id
+JOIN sys.database_principals r ON rm.role_principal_id = r.principal_id
+WHERE dp.name = 'your_user'
+ 
+
+Check Specific Permissions
+
+To verify specific permissions on the object:
+
+
+
+USE SSISDB
+GO
+SELECT 
+    p.permission_name,
+    p.state_desc,
+    pr.name AS principal_name
+FROM sys.database_permissions p
+JOIN sys.objects o ON p.major_id = o.object_id
+JOIN sys.database_principals pr ON p.grantee_principal_id = pr.principal_id
+WHERE o.name = 'effective_object_permissions'
+ 
