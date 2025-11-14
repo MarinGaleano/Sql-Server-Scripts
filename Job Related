@@ -1,3 +1,11 @@
+Understanding Agent Job Dependencies
+SQL Server Agent jobs have dependencies that must be considered during migration:​​
+
+Credentials and Proxies - Jobs using proxy accounts require credentials to exist first​
+Operators - Jobs with notifications require operators to exist on destination​
+Job Categories - Custom categories are migrated automatically by Copy-DbaAgentJob​
+Database Dependencies - Jobs referencing specific databases require those databases to exist​
+
 -------------------------------------------------------------------------
 -- Configure a User to Create and Manage SQL Server Agent Jobs
 https://learn.microsoft.com/en-us/sql/ssms/agent/configure-a-user-to-create-and-manage-sql-server-agent-jobs?view=sql-server-ver16
