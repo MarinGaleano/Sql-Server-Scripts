@@ -1,0 +1,155 @@
+Linked Servers
+
+
+
+By Juliano Monteiro
+
+2 min
+
+4
+
+Add a reaction
+SQL Server Linked Servers Migration Procedure using dbatools
+Overview
+SQL Server linked servers provide connections to remote data sources, enabling cross-server queries and distributed transactions. Linked servers store connection information including server names, provider types, and authentication credentials that must be migrated during instance transitions. The dbatools module provides specialized support for linked server migration through Copy-DbaLinkedServer and Export-DbaLinkedServer commands, with the unique capability to decrypt and migrate saved passwords.​​
+
+Prerequisites
+Before beginning linked server migration procedures, ensure the following requirements are met:​​
+
+dbatools PowerShell module installed
+
+Sysadmin permissions on both source and destination SQL Server instances
+
+Windows registry access for password decryption (Windows only)
+
+Remote Dedicated Administrator Connection (DAC) enabled on source instance
+
+Network connectivity between source and destination servers
+
+Install dbatools if not already available:​
+
+
+
+choco install dbatools -Y
+Understanding Linked Server Dependencies
+SQL Server linked servers have specific requirements and dependencies:​​
+
+Credentials - Linked servers using SQL authentication store encrypted passwords​
+
+Providers - OLE DB providers must be installed on destination server​
+
+DAC Access - Password decryption requires Dedicated Administrator Connection​​
+
+Registry Access - Password decryption uses Windows registry encryption keys​
+
+Method 1: Direct Linked Server Migration Between Instances
+Description
+This method copies linked servers directly from a source instance to a destination instance using the Copy-DbaLinkedServer command. This approach automatically decrypts and migrates saved passwords, maintaining full functionality.​​
+
+Use Case
+Essential for production migrations, disaster recovery setup, or synchronizing linked server configurations across multiple instances.​​
+
+Example - Copy All Linked Servers
+
+
+# Copy all linked servers from source to destination
+Copy-DbaLinkedServer -Source 'SQL01-PROD' -Destination 'SQL02-DR'
+Example - Copy Specific Linked Servers
+
+
+# Copy only specific linked servers
+$params = @{
+    Source = 'SQL01-PROD'
+    Destination = 'SQL02-DR'
+    LinkedServer = 'ERP_Server', 'DataWarehouse', 'ReportingDB'
+}
+Copy-DbaLinkedServer @params
+Example - Copy with Exclusions
+
+
+# Copy all linked servers except specific ones
+$params = @{
+    Source = 'SQL01-PROD'
+    Destination = 'SQL02-DR'
+    ExcludeLinkedServer = 'TestServer', 'OldLegacySystem'
+}
+Copy-DbaLinkedServer @params
+Method 2: Copy Linked Servers with Force Overwrite
+Description
+This method uses the -Force parameter to drop and recreate existing linked servers on the destination. This ensures complete synchronization even when linked servers already exist.​​
+
+Use Case
+Perfect for refreshing linked server configurations, updating credentials, or ensuring exact replication of source configuration.​
+
+Example - Force Overwrite Existing Linked Servers
+
+
+# Drop and recreate linked servers on destination
+$params = @{
+    Source = 'SQL01-PROD'
+    Destination = 'SQL02-DR'
+    Force = $true
+}
+Copy-DbaLinkedServer @params
+Example - Production Migration with Error Handling
+
+
+# Production-ready migration with comprehensive error handling
+$PSDefaultParameterValues = @{ '*-Dba*:EnableException' = $true }
+try {
+    $params = @{
+        Source = 'SQL01-PROD'
+        Destination = 'SQL02-DR'
+        Force = $true
+    }
+    $results = Copy-DbaLinkedServer @params
+    # Display results
+    Write-Output "========================================="
+    Write-Output "Linked Server Migration Summary"
+    Write-Output "========================================="
+    Write-Output "Successful: $($results.Where({$_.Status -eq 'Successful'}).Count)"
+    Write-Output "Failed: $($results.Where({$_.Status -eq 'Failed'}).Count)"
+    # Show failed migrations
+    $failed = $results.Where({$_.Status -eq 'Failed'})
+    if ($failed.Count -gt 0) {
+        Write-Output "`nFailed Linked Servers:"
+        $failed | Select-Object Name, Notes | Format-Table -AutoSize
+    }
+} catch {
+    Write-Error "Linked server migration failed: $($_.Exception.Message)"
+    exit 1
+}
+Method 3: Export Linked Servers to T-SQL Scripts
+Description
+This method exports SQL Server linked servers to executable T-SQL scripts using Export-DbaLinkedServer. The scripts include complete configuration and optionally passwords in clear text.​​
+
+Use Case
+Perfect for documentation, disaster recovery planning, source control integration, or when direct server-to-server connection is not available.​​
+
+Example - Export All Linked Servers with Passwords
+
+
+# Export all linked servers including passwords
+$exportPath = "D:\Temp\LinkedServers"
+Export-DbaLinkedServer -SqlInstance 'SQL01-PROD' -Path $exportPath
+Write-Output "Linked servers exported to: $exportPath"
+Example - Export Without Passwords (Documentation)
+
+
+# Export linked servers without sensitive password information
+$params = @{
+    SqlInstance = 'SQL01-PROD'
+    Path = 'C:\Documentation\LinkedServers'
+    ExcludePassword = $true
+}
+Export-DbaLinkedServer @params
+Example - Export Specific Linked Servers
+
+
+# Export only specific linked servers
+$params = @{
+    SqlInstance = 'SQL01-PROD'
+    LinkedServer = 'ERP_Server', 'DataWarehouse'
+    Path = 'C:\Exports\LinkedServers'
+}
+Export-DbaLinkedServer @params
