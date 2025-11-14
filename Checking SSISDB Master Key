@@ -1,0 +1,136 @@
+Checking SSISDB Master Key
+
+
+
+By Juliano Monteiro
+
+2 min
+
+2
+
+Add a reaction
+1. Check if Master Key exists in SSISDB
+
+
+USE [SSISDB]
+GO
+SELECT name, symmetric_key_id, key_length, algorithm_desc 
+FROM sys.symmetric_keys 
+WHERE name = '##MS_DatabaseMasterKey##'
+GO
+2. Check if Master Key is encrypted by Service Master Key
+
+
+SELECT d.name, d.is_master_key_encrypted_by_server 
+FROM sys.databases AS d 
+WHERE d.name = 'SSISDB'
+GO
+Expected result:
+
+1 (True): Master key is encrypted by Service Master Key
+
+0 (False): Master key is NOT encrypted by Service Master Key
+
+3. List all symmetric keys in SSISDB
+
+
+USE [SSISDB]
+GO
+SELECT 
+    name,
+    symmetric_key_id,
+    key_length,
+    algorithm_desc,
+    create_date,
+    modify_date
+FROM sys.symmetric_keys
+ORDER BY create_date
+GO
+4. Check specific Master Key details
+
+
+USE [SSISDB]
+GO
+SELECT 
+    sk.name AS key_name,
+    sk.symmetric_key_id,
+    sk.key_length,
+    sk.algorithm_desc,
+    sk.create_date,
+    sk.modify_date,
+    db.is_master_key_encrypted_by_server
+FROM sys.symmetric_keys sk
+CROSS JOIN sys.databases db
+WHERE sk.name = '##MS_DatabaseMasterKey##'
+  AND db.name = 'SSISDB'
+GO
+5. Verify if Master Key can be opened (password test)
+
+
+USE [SSISDB]
+GO
+-- Try to open with known password
+OPEN MASTER KEY DECRYPTION BY PASSWORD = 'your_password_here'
+GO
+-- If it worked, close the master key
+CLOSE MASTER KEY
+GO
+If password is correct: No error message
+If password is incorrect: "The key is not encrypted using the specified decryptor"
+
+Additional Master Key Information
+6. Check Master Key encryption properties
+
+
+USE [SSISDB]
+GO
+SELECT 
+    key_id,
+    crypt_type_desc,
+    crypt_property,
+    create_date,
+    modify_date
+FROM sys.key_encryptions
+WHERE key_id = (
+    SELECT symmetric_key_id 
+    FROM sys.symmetric_keys 
+    WHERE name = '##MS_DatabaseMasterKey##'
+)
+GO
+7. Complete script for Master Key diagnostics
+
+
+USE [SSISDB]
+GO
+PRINT '=== SSISDB MASTER KEY DIAGNOSTICS ==='
+PRINT ''
+-- Check if master key exists
+PRINT '1. Does Master Key exist?'
+IF EXISTS (SELECT 1 FROM sys.symmetric_keys WHERE name = '##MS_DatabaseMasterKey##')
+    PRINT '   ✓ YES - Master Key found'
+ELSE
+    PRINT '   ✗ NO - Master Key NOT found'
+PRINT ''
+-- Check if encrypted by SMK
+PRINT '2. Is Master Key encrypted by Service Master Key?'
+SELECT CASE 
+    WHEN is_master_key_encrypted_by_server = 1 THEN '   ✓ YES - Encrypted by SMK'
+    ELSE '   ✗ NO - NOT encrypted by SMK'
+END AS status
+FROM sys.databases 
+WHERE name = 'SSISDB'
+PRINT ''
+-- List master key details
+PRINT '3. Master Key Details:'
+SELECT 
+    name AS 'Key Name',
+    symmetric_key_id AS 'Key ID',
+    key_length AS 'Key Length',
+    algorithm_desc AS 'Algorithm',
+    create_date AS 'Creation Date',
+    modify_date AS 'Modification Date'
+FROM sys.symmetric_keys 
+WHERE name = '##MS_DatabaseMasterKey##'
+GO
+These commands allow you to perform a complete diagnosis of the SSISDB master key state, checking if it exists, if it's configured correctly, and what its properties are.
+
