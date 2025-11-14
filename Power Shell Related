@@ -1,3 +1,7 @@
+Install dbatools if not already available:​
+
+choco install dbatools -Y
+
 ---------------------------------------------------------------------------------
 C:\Users\adm_jgalean8>powershell                                                                                       
 Windows PowerShell
