@@ -1,0 +1,177 @@
+Master Database Startup Failures
+
+
+
+By Juliano Monteiro
+
+3 min
+
+7
+
+thumbs up
+1
+SQL Server Post-Patch Recovery Procedure
+Executive Summary
+This document provides a comprehensive recovery procedure for SQL Server instances that fail to start after applying security patches or cumulative updates (CUs). The root cause typically involves upgrade scripts encountering missing logins, orphaned database users, or orphaned SQL Agent job owners, which prevent the master database from recovering and halt the entire SQL Server instance.
+
+SQL Server won't start after patch
+│
+├─ Check ERRORLOG for error codes
+│
+├─ Error 15151 (SSIS Login Missing)
+│  │
+│  ├─ Add Trace Flag 902
+│  ├─ Start SQL Server
+│  ├─ Recreate ##MS_SSISServerCleanupJobLogin##
+│  ├─ Fix SSISDB user mapping
+│  ├─ Remove Trace Flag 902
+│  └─ Restart SQL Server
+│
+└─ Other errors (Error 6528, 945, 574 etc.)
+   │
+   ├─ Add Trace Flag 902
+   ├─ Start SQL Server
+   ├─ Review Microsoft documentation for specific error
+   ├─ Apply targeted fix
+   ├─ Remove Trace Flag 902
+   └─ Restart SQL Server
+
+Common Error Scenario
+ SSIS Login Missing (Error 15151)
+Error Pattern:
+
+
+
+Error: 15151, Severity: 16, State: 1.
+Cannot find the login '##MS_SSISServerCleanupJobLogin##', because it does not exist or you do not have permission.
+Error: 912, Severity: 21, State: 2.
+Script level upgrade for database 'master' failed because upgrade step 'ISServer_upgrade.sql' encountered error 15151, state 1, severity 16.
+Error: 3417, Severity: 21, State: 3.
+Cannot recover the master database. SQL Server is unable to run.
+Root Cause: The SSISDB catalog requires specific system logins and users (##MS_SSISServerCleanupJobLogin## and ##MS_SSISServerCleanupJobUser##) that are missing or incorrectly mapped after the patch installation.​
+
+Recovery Procedure
+Phase 1: Emergency Instance Startup with Trace Flag 902
+Objective: Bypass upgrade scripts to gain access to the SQL Server instance for diagnostic and remediation work.​
+
+Step 1.1: Add Trace Flag 902 to Startup Parameters
+Using SQL Server Configuration Manager:
+
+Open SQL Server Configuration Manager
+
+Navigate to SQL Server Services
+
+Right-click on the affected SQL Server (INSTANCENAME) service
+
+Select Properties
+
+Click the Startup Parameters tab
+
+In the Specify a startup parameter field, enter: -T902
+
+Click Add
+
+Click Apply, then OK
+
+Important Notes:
+
+Trace flag 902 instructs SQL Server to skip all upgrade scripts during startup
+
+This is a temporary diagnostic flag and must be removed after fixes are applied
+
+The instance will start in a "bypassed upgrade" state​
+
+Step 1.2: Start SQL Server Service
+Expected Result: SQL Server should now start successfully, but upgrade scripts are not executed.
+
+Phase 2: Identify Specific Failure Point
+Key indicators to look for in ERRORLOG (read entries BEFORE error 912):
+
+For Error 15151 (SSIS Login Issues):
+
+
+
+Granting login access '##MS_SSISServerCleanupJobLogin##' to msdb database...
+A problem was encountered granting access to MSDB database for login '(null)'.
+Phase 3: Root Cause Remediation
+Objective: Fix the underlying issues preventing upgrade scripts from completing.
+
+Solution 3.1: Fix Missing SSIS Logins (Error 15151)
+Step1: Recreate SSIS System Login
+
+
+USE master;
+GO
+-- Create the SSIS cleanup job login with a strong random password
+CREATE LOGIN [##MS_SSISServerCleanupJobLogin##] 
+WITH PASSWORD = N'P@ssw0rd_' + CONVERT(NVARCHAR(50), NEWID()), 
+     DEFAULT_DATABASE = [master], 
+     DEFAULT_LANGUAGE = [us_english], 
+     CHECK_EXPIRATION = OFF, 
+     CHECK_POLICY = OFF;
+GO
+-- Grant necessary server-level permissions
+GRANT VIEW SERVER STATE TO [##MS_SSISServerCleanupJobLogin##];
+GO
+Step2: Fix SSISDB User Mapping
+
+
+USE SSISDB;
+GO
+-- Check if user exists
+SELECT name, type_desc, authentication_type_desc, create_date
+FROM sys.database_principals
+WHERE name = '##MS_SSISServerCleanupJobUser##';
+-- Remap user to login (if user exists but is orphaned)
+ALTER USER [##MS_SSISServerCleanupJobUser##] 
+WITH LOGIN = [##MS_SSISServerCleanupJobLogin##];
+GO
+-- If user doesn't exist, create it
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = '##MS_SSISServerCleanupJobUser##')
+BEGIN
+    CREATE USER [##MS_SSISServerCleanupJobUser##] 
+    FOR LOGIN [##MS_SSISServerCleanupJobLogin##];
+END
+GO
+Phase 4: Remove Trace Flag and Complete Upgrade
+Objective: Allow upgrade scripts to execute successfully and bring the instance to a fully operational state.​
+
+Step 4.1: Remove Trace Flag 902
+Using SQL Server Configuration Manager:
+
+Open SQL Server Configuration Manager
+
+Right-click on SQL Server (INSTANCENAME) service → Properties
+
+Go to Startup Parameters tab
+
+Select the -T902 parameter
+
+Click Remove
+
+Click Apply, then OK
+
+Step 4.2: Verify Upgrade Completion
+Verify via Error Log:
+
+
+
+-- Connect to SQL Server and check error log
+EXEC sp_readerrorlog 0, 1, N'Script level upgrade';
+-- Look for successful completion messages like:
+-- "Script level upgrade for database 'master' finished successfully."
+-- "Starting up database 'master'."
+Verify SQL Server Version and Patch Level:
+
+
+
+-- Check SQL Server version and build number
+SELECT 
+    SERVERPROPERTY('ProductVersion') AS ProductVersion,
+    SERVERPROPERTY('ProductLevel') AS ProductLevel,
+    SERVERPROPERTY('Edition') AS Edition,
+    SERVERPROPERTY('ProductUpdateLevel') AS UpdateLevel,
+    SERVERPROPERTY('ProductUpdateReference') AS UpdateReference;
+GO
+-- Compare with expected CU/SP build number
+ 
