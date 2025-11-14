@@ -1,0 +1,616 @@
+Agent Jobs
+
+
+
+By Juliano Monteiro
+
+9 min
+
+7
+
+Add a reaction
+SQL Server Agent Jobs Export and Migration Procedure using dbatools
+Overview
+SQL Server Agent jobs are critical components of database environments, enabling scheduled execution of maintenance tasks, ETL processes, and business logic workflows. The dbatools module provides comprehensive commands for exporting, migrating, and scripting Agent jobs with support for selective inclusion/exclusion through the -Job and -ExcludeJob parameters. This procedure demonstrates multiple methods for job migration with emphasis on filtering capabilities to ensure precise control over which jobs are transferred.​​
+
+Prerequisites
+Before beginning Agent job export and migration procedures, ensure the following requirements are met:​​
+
+dbatools PowerShell module installed
+
+Sysadmin permissions on both source and destination SQL Server instances
+
+SQL Server Agent service running on both instances
+
+Network connectivity between source and destination servers
+
+Access to file system for script exports (if using script-based approach)
+
+Install dbatools if not already available:​
+
+
+
+choco install dbatools -Y
+Understanding Agent Job Dependencies
+SQL Server Agent jobs have dependencies that must be considered during migration:​​
+
+Credentials and Proxies - Jobs using proxy accounts require credentials to exist first​
+
+Operators - Jobs with notifications require operators to exist on destination​
+
+Job Categories - Custom categories are migrated automatically by Copy-DbaAgentJob​
+
+Database Dependencies - Jobs referencing specific databases require those databases to exist​
+
+Method 1: Export All Agent Jobs to T-SQL Scripts
+Description
+This method exports all SQL Server Agent jobs from an instance to executable T-SQL scripts using the Get-DbaAgentJob and Export-DbaScript commands. This provides a portable, version-controllable representation of your jobs.​​
+
+Use Case
+Perfect for documentation, disaster recovery planning, source control integration, or when direct server-to-server connection is not available.​
+
+Example - Export All Jobs to Single File
+
+
+# Export all Agent jobs to a single SQL file
+$params = @{
+    SqlInstance = 'SQL01-PROD'
+    FilePath = 'C:\Exports\AgentJobs\AllJobs.sql'
+}
+Get-DbaAgentJob @params | Export-DbaScript
+Example - Export with Timestamp
+
+
+# Create timestamped export for version control
+$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+$exportPath = "C:\Exports\AgentJobs"
+$fileName = "AgentJobs_SQL01_$timestamp.sql"
+Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | 
+    Export-DbaScript -Path $exportPath -FilePath $fileName
+Write-Output "Jobs exported to: $exportPath\$fileName"
+Example - Export Individual Jobs to Separate Files
+
+
+# Export each job to its own file
+$exportPath = "C:\Exports\AgentJobs\Individual"
+# Create export directory if it doesn't exist
+if (-not (Test-Path $exportPath)) {
+    New-Item -Path $exportPath -ItemType Directory | Out-Null
+}
+# Export each job to separate file
+Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | ForEach-Object {
+    $safeFileName = $_.Name -replace '[\\/:*?"<>|]', '_'
+    $filePath = Join-Path $exportPath "$safeFileName.sql"
+    $_ | Export-DbaScript -FilePath $filePath
+    Write-Output "Exported: $($_.Name) to $filePath"
+}
+Method 2: Export Jobs with Exclusion List
+Description
+This method exports Agent jobs while excluding specific jobs by name using filtering techniques. This enables precise control over which jobs are documented or migrated.​​
+
+Use Case
+Essential when certain jobs should not be migrated, such as environment-specific jobs, test jobs, or jobs that are being deprecated.​​
+
+Example - Export Jobs Excluding Specific Names
+
+
+# Define jobs to exclude
+$excludeJobs = @(
+    'syspolicy_purge_history',
+    'TestJob',
+    'OldMaintenanceJob',
+    'Development_*'
+)
+# Get all jobs except excluded ones
+$params = @{
+    SqlInstance = 'SQL01-PROD'
+    ExcludeJob = $excludeJobs
+}
+Get-DbaAgentJob @params | 
+    Export-DbaScript -FilePath 'C:\Exports\FilteredJobs.sql'
+Example - Exclude System and Maintenance Jobs
+
+
+# Define exclusion categories
+$jobExclusions = @{
+    # Ola Hallengren maintenance jobs
+    MaintenanceJobs = @(
+        'DatabaseBackup - SYSTEM_DATABASES - FULL',
+        'DatabaseBackup - USER_DATABASES - FULL',
+        'DatabaseBackup - USER_DATABASES - DIFF',
+        'DatabaseBackup - USER_DATABASES - LOG',
+        'DatabaseIntegrityCheck - SYSTEM_DATABASES',
+        'DatabaseIntegrityCheck - USER_DATABASES',
+        'IndexOptimize - USER_DATABASES',
+        'CommandLog Cleanup',
+        'sp_delete_backuphistory',
+        'sp_purge_jobhistory',
+        'Output File Cleanup'
+    )
+    # System jobs
+    SystemJobs = @(
+        'syspolicy_purge_history'
+    )
+    # Environment-specific jobs
+    EnvironmentSpecific = @(
+        'DEV_*',
+        'TEST_*',
+        '*_LOCAL'
+    )
+}
+# Combine all exclusions
+$allExclusions = $jobExclusions.MaintenanceJobs + 
+                 $jobExclusions.SystemJobs + 
+                 $jobExclusions.EnvironmentSpecific
+# Export jobs excluding maintenance and system jobs
+Get-DbaAgentJob -SqlInstance 'SQL01-PROD' -ExcludeJob $allExclusions | 
+    Export-DbaScript -FilePath 'C:\Exports\BusinessJobs.sql'
+Write-Output "Excluded $($allExclusions.Count) jobs from export"
+Method 3: Export Specific Jobs Using Include List
+Description
+This method exports only specific jobs by name using the -Job parameter. This provides precise control over which jobs are exported.​
+
+Use Case
+Best for exporting application-specific jobs, critical business process jobs, or when migrating only a subset of jobs to a new environment.​​
+
+Example - Export Specific Jobs by Name
+
+
+# Define jobs to export
+$jobsToExport = @(
+    'ETL_DailyProcessing',
+    'Report_GenerateMonthlyReports',
+    'Data_ArchivalProcess'
+)
+# Export only specified jobs
+$params = @{
+    SqlInstance = 'SQL01-PROD'
+    Job = $jobsToExport
+}
+Get-DbaAgentJob @params | 
+    Export-DbaScript -FilePath 'C:\Exports\CriticalJobs.sql'
+Example - Export Jobs with Dynamic Selection
+
+
+# Define job selection criteria
+$jobConfig = @{
+    # Jobs containing specific keywords
+    IncludePatterns = @('ETL', 'Report', 'Archive')
+    # Specific job names
+    SpecificJobs = @('MonthEndProcess', 'DailyReconciliation')
+    # Jobs in specific categories
+    Categories = @('Data Warehouse', 'Reporting')
+}
+# Get jobs matching patterns
+$patternJobs = Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | 
+    Where-Object {
+        $job = $_
+        $jobConfig.IncludePatterns | ForEach-Object {
+            if ($job.Name -like "*$_*") { return $true }
+        }
+    }
+# Get jobs in specific categories
+$categoryJobs = Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | 
+    Where-Object Category -in $jobConfig.Categories
+# Get specific jobs
+$specificJobs = Get-DbaAgentJob -SqlInstance 'SQL01-PROD' -Job $jobConfig.SpecificJobs
+# Combine and remove duplicates
+$allJobsToExport = @($patternJobs) + @($categoryJobs) + @($specificJobs) | 
+    Select-Object -Unique -ExpandProperty Name
+Write-Output "Exporting $($allJobsToExport.Count) jobs:"
+$allJobsToExport | ForEach-Object { Write-Output "  - $_" }
+# Export selected jobs
+Get-DbaAgentJob -SqlInstance 'SQL01-PROD' -Job $allJobsToExport | 
+    Export-DbaScript -FilePath 'C:\Exports\SelectedJobs.sql'
+Method 4: Interactive Job Selection with Out-GridView
+Description
+This method uses PowerShell's Out-GridView cmdlet to present a graphical interface for selecting which jobs to export or migrate.​​
+
+Use Case
+Perfect for ad-hoc exports where you want to visually review and select specific jobs interactively.​
+
+Example - Interactive Selection for Export
+
+
+# Display all jobs in grid view for selection
+Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | 
+    Select-Object Name, Category, Enabled, Description, OwnerLoginName | 
+    Out-GridView -Title "Select Jobs to Export" -PassThru | 
+    Export-DbaScript -FilePath 'C:\Exports\SelectedJobs.sql'
+Example - Interactive Selection for Migration
+
+
+# Select jobs interactively and migrate to destination
+Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | 
+    Select-Object Name, Category, Enabled, Description | 
+    Out-GridView -Title "Select Jobs to Migrate to SQL02-DR" -PassThru | 
+    Copy-DbaAgentJob -Destination 'SQL02-DR'
+Method 5: Direct Job Migration with Copy-DbaAgentJob
+Description
+This method copies Agent jobs directly from source to destination server using Copy-DbaAgentJob. This is the fastest method for server-to-server migration.​​
+
+Use Case
+Essential for production migrations, disaster recovery setup, or synchronizing jobs across availability group replicas.​​
+
+Example - Copy All Jobs
+
+
+# Copy all jobs from source to destination
+Copy-DbaAgentJob -Source 'SQL01-PROD' -Destination 'SQL02-DR'
+Example - Copy Specific Jobs with Exclusions
+
+
+# Define jobs to exclude
+$excludeList = @(
+    'syspolicy_purge_history',
+    'TestJob',
+    'DatabaseBackup*',
+    'DatabaseIntegrityCheck*',
+    'IndexOptimize*'
+)
+# Copy all jobs except excluded ones
+$params = @{
+    Source = 'SQL01-PROD'
+    Destination = 'SQL02-DR'
+    ExcludeJob = $excludeList
+}
+Copy-DbaAgentJob @params
+Example - Copy Jobs and Disable on Source
+
+
+# Copy jobs and disable them on source (migration scenario)
+$params = @{
+    Source = 'SQL01-PROD'
+    Destination = 'SQL02-DR'
+    DisableOnSource = $true
+}
+Copy-DbaAgentJob @params
+Method 6: Filter Jobs by Category
+Description
+This method filters jobs based on their category assignment. Categories provide a natural grouping mechanism for job organization.​​
+
+Use Case
+Ideal for migrating application-specific jobs or excluding entire categories like maintenance jobs.​
+
+Example - Export Jobs by Category
+
+
+# Get all custom categories (exclude system categories)
+$customCategories = Get-DbaAgentJobCategory -SqlInstance 'SQL01-PROD' | 
+    Where-Object Name -notin 'Uncategorized [Local]', 'Database Maintenance', 'Log Shipping' | 
+    Select-Object -ExpandProperty Name
+# Export jobs in custom categories only
+Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | 
+    Where-Object Category -in $customCategories | 
+    Export-DbaScript -FilePath 'C:\Exports\CustomCategoryJobs.sql'
+Example - Migrate Specific Category
+
+
+# Copy only jobs in specific categories
+$targetCategories = @('Data Warehouse', 'Reporting', 'ETL')
+Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | 
+    Where-Object Category -in $targetCategories | 
+    Copy-DbaAgentJob -Destination 'SQL02-DR'
+Method 7: Advanced Filtering with Multiple Criteria
+Description
+This method combines multiple filtering techniques to create sophisticated job selection logic. This provides maximum flexibility for complex migration scenarios.​
+
+Use Case
+Perfect for complex environments where jobs must be filtered based on multiple criteria such as category, owner, enabled status, or naming patterns.​
+
+Example - Complex Multi-Criteria Filter
+
+
+# Define comprehensive filtering configuration
+$jobFilterConfig = @{
+    # Exclude by name patterns
+    ExcludePatterns = @(
+        'syspolicy*',
+        'TEST_*',
+        'DEV_*',
+        '*_TEMP',
+        'Old_*'
+    )
+    # Exclude specific jobs
+    ExcludeSpecific = @(
+        'BackupJob_Legacy',
+        'DisabledMaintenanceJob'
+    )
+    # Exclude by category
+    ExcludeCategories = @(
+        'Log Shipping',
+        'Replication'
+    )
+    # Include only enabled jobs
+    OnlyEnabled = $true
+    # Exclude jobs owned by specific logins
+    ExcludeOwners = @(
+        'sa',
+        'DOMAIN\OldAdmin'
+    )
+}
+# Apply filters
+$jobs = Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | Where-Object {
+    $job = $_
+    # Check pattern exclusions
+    $excludedByPattern = $false
+    foreach ($pattern in $jobFilterConfig.ExcludePatterns) {
+        if ($job.Name -like $pattern) {
+            $excludedByPattern = $true
+            break
+        }
+    }
+    # Apply all filter criteria
+    (-not $excludedByPattern) -and
+    ($job.Name -notin $jobFilterConfig.ExcludeSpecific) -and
+    ($job.Category -notin $jobFilterConfig.ExcludeCategories) -and
+    (-not $jobFilterConfig.OnlyEnabled -or $job.IsEnabled -eq $true) -and
+    ($job.OwnerLoginName -notin $jobFilterConfig.ExcludeOwners)
+}
+# Display summary
+Write-Output "========================================="
+Write-Output "Job Export Summary"
+Write-Output "========================================="
+Write-Output "Total Jobs Found: $(Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | Measure-Object | Select-Object -ExpandProperty Count)"
+Write-Output "Jobs After Filtering: $($jobs.Count)"
+Write-Output "`nJobs to Export:"
+$jobs | Select-Object Name, Category, IsEnabled, OwnerLoginName | Format-Table -AutoSize
+# Export filtered jobs
+$jobs | Export-DbaScript -FilePath 'C:\Exports\FilteredJobs.sql'
+Method 8: Complete Migration Procedure with Dependencies
+Description
+This comprehensive method handles the complete migration of Agent jobs including all dependencies such as credentials, proxies, operators, and categories.​​
+
+Use Case
+Recommended for production migrations requiring complete, validated job migration with all dependencies properly handled.​
+
+Example - Complete Agent Migration
+
+
+
+powershell
+# Complete SQL Agent migration with dependencies
+$PSDefaultParameterValues = @{ '*-Dba*:EnableException' = $true }
+try {
+    # Configuration
+    $sourceInstance = 'SQL01-PROD'
+    $destinationInstance = 'SQL02-DR'
+    Write-Output "========================================="
+    Write-Output "SQL Agent Migration Started"
+    Write-Output "Source: $sourceInstance"
+    Write-Output "Destination: $destinationInstance"
+    Write-Output "========================================="
+    # Define job exclusions
+    $jobExclusions = @(
+        'syspolicy_purge_history',
+        'DatabaseBackup*',
+        'DatabaseIntegrityCheck*',
+        'IndexOptimize*',
+        'CommandLog Cleanup',
+        'sp_delete_backuphistory',
+        'sp_purge_jobhistory',
+        'Output File Cleanup'
+    )
+    # Step 1: Migrate Credentials (REQUIRED FIRST)
+    Write-Output "`n[Step 1/5] Migrating credentials..."
+    $credResult = Copy-DbaCredential -Source $sourceInstance `
+        -Destination $destinationInstance
+    Write-Output "Credentials migrated: $($credResult.Count)"
+    # Step 2: Migrate Proxies (REQUIRED SECOND)
+    Write-Output "`n[Step 2/5] Migrating proxies..."
+    $proxyResult = Copy-DbaAgentProxy -Source $sourceInstance `
+        -Destination $destinationInstance
+    Write-Output "Proxies migrated: $($proxyResult.Count)"
+    # Step 3: Migrate Operators (REQUIRED THIRD)
+    Write-Output "`n[Step 3/5] Migrating operators..."
+    $operatorResult = Copy-DbaAgentOperator -Source $sourceInstance `
+        -Destination $destinationInstance
+    Write-Output "Operators migrated: $($operatorResult.Count)"
+    # Step 4: Migrate Job Categories (AUTOMATIC WITH JOBS)
+    Write-Output "`n[Step 4/5] Job categories will be migrated automatically with jobs"
+    # Step 5: Migrate Jobs (FINAL STEP)
+    Write-Output "`n[Step 5/5] Migrating Agent jobs..."
+    $jobParams = @{
+        Source = $sourceInstance
+        Destination = $destinationInstance
+        ExcludeJob = $jobExclusions
+    }
+    $jobResult = Copy-DbaAgentJob @jobParams
+    # Display results
+    Write-Output "`n========================================="
+    Write-Output "Migration Summary"
+    Write-Output "========================================="
+    Write-Output "Credentials: $($credResult.Count)"
+    Write-Output "Proxies: $($proxyResult.Count)"
+    Write-Output "Operators: $($operatorResult.Count)"
+    Write-Output "Jobs Migrated: $($jobResult.Where({$_.Status -eq 'Successful'}).Count)"
+    Write-Output "Jobs Skipped: $($jobResult.Where({$_.Status -eq 'Skipped'}).Count)"
+    Write-Output "Jobs Failed: $($jobResult.Where({$_.Status -eq 'Failed'}).Count)"
+    # Show details of any failed or skipped jobs
+    $issues = $jobResult.Where({$_.Status -ne 'Successful'})
+    if ($issues.Count -gt 0) {
+        Write-Output "`nJobs Requiring Attention:"
+        $issues | Select-Object Name, Status, Notes | Format-Table -AutoSize
+    }
+    Write-Output "`nMigration completed at $(Get-Date)"
+    Write-Output "========================================="
+} catch {
+    Write-Error "Migration failed: $($_.Exception.Message)"
+    exit 1
+}
+Method 9: Export with Documentation
+Description
+This method exports jobs along with comprehensive documentation including inventory reports and execution instructions.​
+
+Use Case
+Essential for compliance, auditing, disaster recovery documentation, or when detailed job information must be retained.​
+
+Example - Complete Documentation Export
+
+
+
+# Complete job documentation export
+$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+$exportBase = "C:\Exports\AgentJobs\$timestamp"
+# Create directory structure
+$paths = @{
+    Scripts = "$exportBase\Scripts"
+    Reports = "$exportBase\Reports"
+}
+foreach ($path in $paths.Values) {
+    if (-not (Test-Path $path)) {
+        New-Item -Path $path -ItemType Directory | Out-Null
+    }
+}
+# Define exclusions
+$excludeJobs = @(
+    'syspolicy_purge_history',
+    'DatabaseBackup*',
+    'DatabaseIntegrityCheck*'
+)
+# Get filtered jobs
+$jobs = Get-DbaAgentJob -SqlInstance 'SQL01-PROD' -ExcludeJob $excludeJobs
+# Export job scripts
+$jobs | Export-DbaScript -FilePath "$($paths.Scripts)\AllJobs.sql"
+# Export job inventory
+$jobs | Select-Object Name, Category, IsEnabled, OwnerLoginName, DateCreated, 
+    DateLastModified, Description | 
+    Export-Csv "$($paths.Reports)\JobInventory.csv" -NoTypeInformation
+# Export job step details
+$jobs | ForEach-Object {
+    Get-DbaAgentJobStep -SqlInstance 'SQL01-PROD' -Job $_.Name
+} | Select-Object JobName, Name, SubSystem, Command, DatabaseName | 
+    Export-Csv "$($paths.Reports)\JobStepDetails.csv" -NoTypeInformation
+# Export job schedule information
+$jobs | ForEach-Object {
+    Get-DbaAgentSchedule -SqlInstance 'SQL01-PROD' -Job $_.Name
+} | Select-Object JobName, Name, FrequencyType, FrequencyInterval, IsEnabled | 
+    Export-Csv "$($paths.Reports)\JobSchedules.csv" -NoTypeInformation
+# Create README
+$readme = @"
+# SQL Server Agent Jobs Export
+## Instance: SQL01-PROD
+## Export Date: $timestamp
+## Contents:
+### Scripts Directory
+- AllJobs.sql: Complete T-SQL scripts to recreate all jobs
+### Reports Directory
+- JobInventory.csv: Complete list of jobs with metadata
+- JobStepDetails.csv: Detailed information about job steps
+- JobSchedules.csv: Schedule information for all jobs
+## Excluded Jobs:
+$(($excludeJobs | ForEach-Object { "- $_" }) -join "`n")
+## Usage:
+1. Review job inventory and step details
+2. Execute AllJobs.sql on destination server
+3. Verify jobs using: SELECT * FROM msdb.dbo.sysjobs ORDER BY name
+## Notes:
+- Ensure all dependent credentials, proxies, and operators exist before importing
+- Review job ownership and update as needed
+- Verify database references in job steps exist on destination
+"@
+$readme | Out-File "$exportBase\README.txt" -Encoding UTF8
+Write-Output "Documentation exported to: $exportBase"
+Execution Order for Complete Migration
+The correct execution order for Agent job migration with dependencies is:​​
+
+Migration Order
+Migrate Credentials - Use Copy-DbaCredential​
+
+Migrate Proxies - Use Copy-DbaAgentProxy​
+
+Migrate Operators - Use Copy-DbaAgentOperator​
+
+Migrate Custom Errors - Use Copy-DbaCustomError (if jobs reference custom errors)​
+
+Migrate Alerts - Use Copy-DbaAgentAlert (if needed)​
+
+Migrate Jobs - Use Copy-DbaAgentJob (categories migrate automatically)​​
+
+Best Practices
+Use Exclusion Lists for Maintenance Jobs
+Always exclude standard maintenance jobs when migrating to environments where they will be recreated:​
+
+
+
+$standardExclusions = @(
+    'DatabaseBackup*',
+    'DatabaseIntegrityCheck*',
+    'IndexOptimize*',
+    'CommandLog Cleanup',
+    'sp_delete_backuphistory',
+    'sp_purge_jobhistory'
+)
+Validate Dependencies Before Migration
+Always verify that required dependencies exist on the destination before migrating jobs:​
+
+
+
+# Verify operators exist
+$requiredOperators = @('DBA', 'AppTeam')
+foreach ($op in $requiredOperators) {
+    if (-not (Get-DbaAgentOperator -SqlInstance 'SQL02-DR' -Operator $op)) {
+        throw "Required operator not found: $op"
+    }
+}
+Document Exclusions
+Maintain a documented list of excluded jobs with reasons for exclusion:​
+
+
+
+$jobExclusionConfig = @{
+    MaintenanceJobs = @{
+        Reason = "Will be recreated using Install-DbaMaintenanceSolution"
+        Jobs = @('DatabaseBackup*', 'IndexOptimize*')
+    }
+    EnvironmentSpecific = @{
+        Reason = "Production-only jobs, not needed in DR"
+        Jobs = @('ProdMonitoring', 'ProdAlerts')
+    }
+}
+Test Migrations in Non-Production
+Always test complete migration procedures in non-production environments first:​
+
+
+
+# Test migration to development
+Copy-DbaAgentJob -Source 'SQL01-PROD' `
+    -Destination 'SQL-DEV' `
+    -ExcludeJob $excludeList `
+    -WhatIf
+Troubleshooting
+Job Migration Fails - Missing Operator
+If a job fails to migrate due to missing operators, migrate operators first:​
+
+
+
+# Check for operator dependencies
+$jobs = Get-DbaAgentJob -SqlInstance 'SQL01-PROD'
+$operators = $jobs | Where-Object OperatorToEmail | 
+    Select-Object -ExpandProperty OperatorToEmail -Unique
+# Migrate required operators
+Copy-DbaAgentOperator -Source 'SQL01-PROD' `
+    -Destination 'SQL02-DR' `
+    -Operator $operators
+Job Uses Proxy - Missing Credential
+If jobs use proxies, ensure credentials are migrated first:​
+
+
+
+# Migrate in correct order
+Copy-DbaCredential -Source 'SQL01-PROD' -Destination 'SQL02-DR'
+Copy-DbaAgentProxy -Source 'SQL01-PROD' -Destination 'SQL02-DR'
+Copy-DbaAgentJob -Source 'SQL01-PROD' -Destination 'SQL02-DR'
+Database References Don't Exist
+Verify that databases referenced in job steps exist on the destination:​
+
+
+
+# Get databases referenced by jobs
+$jobSteps = Get-DbaAgentJob -SqlInstance 'SQL01-PROD' | 
+    ForEach-Object { Get-DbaAgentJobStep -SqlInstance 'SQL01-PROD' -Job $_.Name }
+$referencedDbs = $jobSteps | 
+    Where-Object DatabaseName | 
+    Select-Object -ExpandProperty DatabaseName -Unique
+Write-Output "Databases referenced by jobs:"
+$referencedDbs | Format-List
