@@ -62,8 +62,8 @@ Get-ADUser -Identity "jgalean8" -Properties *
 Get-WinEvent -FilterHashtable @{
     LogName   = 'System','Application','Security'
     StartTime = '2025-11-16 17:50'
-    EndTime   = '2025-11-16 18:30'
-} | Format-Table -AutoSize | Export-Csv "D:\Temp\Events_2025-11-16.csv" -NoTypeInformation
+    EndTime   = '2025-11-16 18:10'
+} | Format-Table -AutoSize| Out-File -FilePath "D:\Temp\output.txt"
 
 
 ---------------------------------------------------------------------------------
