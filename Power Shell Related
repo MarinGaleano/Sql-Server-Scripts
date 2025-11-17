@@ -57,6 +57,17 @@ Get-ADUser -Identity "jgalean8" -Properties *
 
 
 ---------------------------------------------------------------------------------
+-- Script to list Event viewer between two times: (run as administrator)
+
+Get-WinEvent -FilterHashtable @{
+    LogName   = 'System','Application','Security'
+    StartTime = '2025-11-16 17:50'
+    EndTime   = '2025-11-16 18:30'
+} | Format-Table -AutoSize | Export-Csv "D:\Temp\Events_2025-11-16.csv" -NoTypeInformation
+
+
+---------------------------------------------------------------------------------
+
 --Script to monitor counters
 $serverName = $env:COMPUTERNAME
 $Counters = @(
