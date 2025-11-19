@@ -65,6 +65,15 @@ Get-WinEvent -FilterHashtable @{
     EndTime   = '2025-11-16 18:10'
 } | Format-Table -AutoSize| Out-File -FilePath "D:\Temp\output.txt"
 
+-- To list only windows reboot events
+
+Get-WinEvent -FilterHashtable @{
+    LogName   = 'System'
+    Id        = @(6005,6006,6008,1074,1076)
+    StartTime = '2025-11-18 21:00'
+    EndTime   = '2025-11-18 23:59'
+} | Format-Table -AutoSize
+
 
 ---------------------------------------------------------------------------------
 
