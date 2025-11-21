@@ -1,4 +1,58 @@
 
+-----------------------------------------------------------------------
+--All databases used and free space
+SET NOCOUNT ON;
+
+DECLARE @db sysname,
+        @sql nvarchar(max);
+
+DECLARE db_cursor CURSOR FAST_FORWARD FOR
+SELECT name
+FROM sys.databases
+WHERE database_id > 4        -- exclude system DBs
+  AND state = 0              -- online only
+  AND name NOT IN ('tempdb');  -- skip tempdb
+
+OPEN db_cursor;
+
+FETCH NEXT FROM db_cursor INTO @db;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @sql = N'
+    WITH cte AS (
+        SELECT
+            total_data_GB = SUM(size * 8.0 / 1024 / 1024),
+            used_data_GB  = SUM(FILEPROPERTY(name, ''SpaceUsed'') * 8.0 / 1024 / 1024)
+        FROM sys.database_files
+        WHERE type = 0
+    )
+    SELECT
+        DB_NAME() AS DatabaseName,
+        total_data_GB = FLOOR(total_data_GB),
+        used_data_GB  = FLOOR(used_data_GB),
+        free_data_GB  = FLOOR(total_data_GB - used_data_GB),
+        free_data_percent = 
+            CASE 
+                WHEN total_data_GB = 0 THEN 0
+                ELSE floor(ROUND((total_data_GB - used_data_GB) / total_data_GB * 100, 2))
+            END
+    FROM cte;
+    ';
+
+    PRINT 'Running in database: ' + @db;
+
+    EXEC ('USE [' + @db + ']; ' + @sql);
+
+    FETCH NEXT FROM db_cursor INTO @db;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+
+------------------------------------------------------------------------
+
 
 This gives detailed space usage per table (manually or looped):
 
