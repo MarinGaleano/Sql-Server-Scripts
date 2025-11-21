@@ -1,0 +1,26 @@
+-- All user database tables space used
+
+DECLARE @SQL NVARCHAR(MAX) = N'';
+
+SELECT @SQL += '
+USE [' + name + '];
+SELECT
+    DB_NAME() AS DatabaseName,
+    s.name AS SchemaName,
+    t.name AS TableName,
+    CAST(SUM(a.total_pages) * 8.0 / 1024 AS DECIMAL(18,2)) AS SpaceUsedMB
+FROM sys.tables AS t
+INNER JOIN sys.schemas AS s ON t.schema_id = s.schema_id
+INNER JOIN sys.indexes AS i ON t.object_id = i.object_id
+INNER JOIN sys.partitions AS p ON i.object_id = p.object_id AND i.index_id = p.index_id
+INNER JOIN sys.allocation_units AS a ON p.partition_id = a.container_id
+GROUP BY s.name, t.name
+ORDER BY SpaceUsedMB DESC;
+'
+FROM sys.databases
+WHERE database_id > 4 -- Exclude system databases
+  AND state_desc = 'ONLINE';
+
+EXEC sp_executesql @SQL;
+
+-------------------------------------------------------------
