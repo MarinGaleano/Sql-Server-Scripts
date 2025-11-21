@@ -24,3 +24,34 @@ WHERE database_id > 4 -- Exclude system databases
 EXEC sp_executesql @SQL;
 
 -------------------------------------------------------------
+
+
+-------------------------------------------------------------
+-- Table size, index names, row count
+
+    sch.name AS SchemaName,
+    t.name AS TableName,
+    i.name AS IndexName,
+    i.index_id,
+    i.type_desc AS IndexType,
+    p.row_count,
+    TotalSpaceMB  = CAST(SUM(a.total_pages) * 8.0 / 1024 AS DECIMAL(18,2)),
+    UsedSpaceMB   = CAST(SUM(a.used_pages)  * 8.0 / 1024 AS DECIMAL(18,2)),
+    UnusedSpaceMB = CAST((SUM(a.total_pages) - SUM(a.used_pages)) * 8.0 / 1024 AS DECIMAL(18,2))
+FROM sys.tables t
+JOIN sys.schemas sch ON t.schema_id = sch.schema_id
+JOIN sys.indexes i ON t.object_id = i.object_id
+JOIN sys.dm_db_partition_stats p 
+    ON t.object_id = p.object_id AND i.index_id = p.index_id
+JOIN sys.allocation_units a 
+    ON p.partition_id = a.container_id
+GROUP BY 
+    sch.name,
+    t.name,
+    i.name,
+    i.index_id,
+    i.type_desc,
+    p.row_count
+ORDER BY TotalSpaceMB DESC;
+
+-------------------------------------------------
