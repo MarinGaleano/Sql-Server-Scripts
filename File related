@@ -8,6 +8,30 @@ drive	MB free
 C	4288074
 D	4288074
 
+--ou no powershell
+
+cls
+$remoteServer = "ppolwscrp00004"
+# Establish a remote session to the server
+$session = New-PSSession -ComputerName $remoteServer
+ 
+# Get information about NTFS volumes on the remote server
+$volumes = Invoke-Command -Session $session -ScriptBlock {
+    Get-WmiObject -Class Win32_Volume | Where-Object { $_.FileSystem -match "NTFS" } | Select-Object Name, @{Name="Capacity(TB)"; Expression={"{0:N2}" -f ($_.Capacity / 1TB)}}, @{Name="FreeSpace(TB)"; Expression={"{0:N2}" -f ($_.FreeSpace / 1TB)}}
+}
+# Display the disk space information
+$volumes | Out-GridView
+# Close the remote session
+Remove-PSSession $session
+
+--------------------------------------------------------------
+# Get information about NTFS volumes on the local server
+$volumes = 
+    Get-WmiObject -Class Win32_Volume | Where-Object { $_.FileSystem -match "NTFS" } | Select-Object Name, @{Name="Capacity(TB)"; Expression={"{0:N2}" -f ($_.Capacity / 1TB)}}, @{Name="FreeSpace(TB)"; Expression={"{0:N2}" -f ($_.FreeSpace / 1TB)}}
+# Display the disk space information
+$volumes | Out-GridView
+
+---------------------------------------------------------------
 --------------------------------------------------------------------------------- 
 Para alertas de disco servidores NDW
 Se estiver < 95,5%, fechar e colocar o seguinte: NDW team is aware and working on this issue
