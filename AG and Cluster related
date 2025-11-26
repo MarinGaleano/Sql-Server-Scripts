@@ -1,3 +1,50 @@
+-- Query to list open tran before fail over
+
+SELECT
+    at.transaction_id,
+    at.name AS [Transaction Name],
+    st.session_id,
+    DB_NAME(dt.database_id) AS [Database Name],
+    at.transaction_begin_time AS [Start Time],
+    DATEDIFF(MINUTE, at.transaction_begin_time, GETDATE()) AS [Duration (Mins)],
+    CASE at.transaction_state
+        WHEN 0 THEN 'Uninitialized'
+        WHEN 1 THEN 'Initialized'
+        WHEN 2 THEN 'Active'
+        WHEN 3 THEN 'Ending'
+        WHEN 4 THEN 'Commit Not Possible'
+        WHEN 5 THEN 'Prepared'
+        WHEN 6 THEN 'Committed'
+        WHEN 7 THEN 'Rolling Back'
+        WHEN 8 THEN 'Rolled Back'
+        ELSE 'Other'
+    END AS [Transaction State],
+    -- Get the current running T-SQL command
+    CASE 
+        WHEN er.sql_handle IS NOT NULL 
+        THEN (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(er.sql_handle))
+        ELSE 'No active request/command'
+    END AS [Current Command Text],
+    es.login_name,
+    es.host_name,
+    es.program_name
+FROM 
+    sys.dm_tran_active_transactions at
+INNER JOIN 
+    sys.dm_tran_session_transactions st ON at.transaction_id = st.transaction_id
+INNER JOIN 
+    sys.dm_tran_database_transactions dt ON at.transaction_id = dt.transaction_id
+LEFT JOIN 
+    sys.dm_exec_sessions es ON st.session_id = es.session_id
+LEFT JOIN 
+    sys.dm_exec_requests er ON st.session_id = er.session_id
+WHERE
+    at.transaction_state IN (2, 4, 5, 7) -- Filter for active, prepared, or rollback states
+    AND at.transaction_type IN (1, 4) -- User transactions (1) or distributed (4)
+    AND st.session_id IS NOT NULL; -- Exclude system sessions/internal transactions
+
+----------------------------------------------------------------------------------------------------
+
 -- Manual de throubleshooting AG by Bruno
 
 https://tmobileusa-my.sharepoint.com/:w:/r/personal/bruno_martins283_t-mobile_com/_layouts/15/Doc.aspx?sourcedoc=%7BBCBADBE4-588A-405C-928F-D43A686735F1%7D&file=Manual%20de%20Troubleshooting%20para%20AG.docx&action=default&mobileredirect=true
